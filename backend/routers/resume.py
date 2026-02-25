@@ -1,5 +1,5 @@
 """Resume generation router."""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -14,6 +14,8 @@ from backend.services.resume_builder import (
     generate_tailored_resume,
     generate_resume_html,
     generate_resume_docx,
+    generate_resume_docx_with_template,
+    regenerate_section,
 )
 from backend.services.recommender import get_skill_recommendations
 
@@ -24,6 +26,15 @@ class ResumeGenerateRequest(BaseModel):
     user_id: int
     job_description: str
     parsed_job: Optional[dict] = None
+    saved_job_id: Optional[int] = None
+
+
+class ResumeUpdateRequest(BaseModel):
+    generated_resume_content: dict
+
+
+class SectionRegenerateRequest(BaseModel):
+    section_name: str  # professional_summary, work_experience, skills, etc.
 
 
 @router.post("/generate")
@@ -64,6 +75,7 @@ def generate_resume(data: ResumeGenerateRequest, db: Session = Depends(get_db)):
         matched_keywords=match_result.get("breakdown", {}).get("hard_skills", {}).get("matched", []),
         missing_keywords=match_result.get("breakdown", {}).get("hard_skills", {}).get("missing", []),
         recommendations=recommendations,
+        saved_job_id=data.saved_job_id,
     )
     db.add(tailored)
     db.commit()
@@ -79,9 +91,74 @@ def generate_resume(data: ResumeGenerateRequest, db: Session = Depends(get_db)):
     }
 
 
+@router.put("/{resume_id}")
+def update_resume(resume_id: int, data: ResumeUpdateRequest, db: Session = Depends(get_db)):
+    """Update the generated resume content (save inline edits)."""
+    tailored = db.query(TailoredResume).filter(TailoredResume.id == resume_id).first()
+    if not tailored:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    tailored.generated_resume_content = data.generated_resume_content
+    db.commit()
+    db.refresh(tailored)
+
+    user = db.query(User).filter(User.id == tailored.user_id).first()
+    user_info = serialize_full_profile(user)["user"] if user else {}
+    html_preview = generate_resume_html(tailored.generated_resume_content or {}, user_info)
+
+    return {
+        "id": tailored.id,
+        "resume_content": tailored.generated_resume_content,
+        "html_preview": html_preview,
+    }
+
+
+@router.post("/{resume_id}/regenerate-section")
+def regenerate_resume_section(resume_id: int, data: SectionRegenerateRequest, db: Session = Depends(get_db)):
+    """Regenerate a single section of the resume."""
+    tailored = db.query(TailoredResume).filter(TailoredResume.id == resume_id).first()
+    if not tailored:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    user = db.query(User).filter(User.id == tailored.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    profile = serialize_full_profile(user)
+    new_section = regenerate_section(
+        section_name=data.section_name,
+        current_content=tailored.generated_resume_content or {},
+        job_description=tailored.job_description_text or "",
+        profile_data=profile,
+    )
+
+    # Merge the regenerated section into existing content
+    current = tailored.generated_resume_content or {}
+    for key, value in new_section.items():
+        current[key] = value
+
+    tailored.generated_resume_content = current
+    db.commit()
+    db.refresh(tailored)
+
+    user_info = profile["user"]
+    html_preview = generate_resume_html(current, user_info)
+
+    return {
+        "id": tailored.id,
+        "resume_content": current,
+        "html_preview": html_preview,
+        "regenerated_section": data.section_name,
+    }
+
+
 @router.get("/{resume_id}/download")
-def download_resume(resume_id: int, db: Session = Depends(get_db)):
-    """Download a generated resume as .docx."""
+def download_resume(
+    resume_id: int,
+    template: str = Query(default="ats_classic", pattern="^(ats_classic|modern|compact)$"),
+    db: Session = Depends(get_db),
+):
+    """Download a generated resume as .docx with template selection."""
     tailored = db.query(TailoredResume).filter(TailoredResume.id == resume_id).first()
     if not tailored:
         raise HTTPException(status_code=404, detail="Resume not found")
@@ -93,7 +170,9 @@ def download_resume(resume_id: int, db: Session = Depends(get_db)):
     profile = serialize_full_profile(user)
     user_info = profile["user"]
 
-    docx_buffer = generate_resume_docx(tailored.generated_resume_content, user_info)
+    docx_buffer = generate_resume_docx_with_template(
+        tailored.generated_resume_content, user_info, template
+    )
 
     filename = f"resume_{user.name.replace(' ', '_')}_{tailored.job_title_applied or 'tailored'}.docx"
 
@@ -105,7 +184,7 @@ def download_resume(resume_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{resume_id}")
-def get_resume(resume_id: int, db: Session = Depends(get_db)):
+def get_resume(resume_id: int, template: str = Query(default="ats_classic"), db: Session = Depends(get_db)):
     """Get a saved tailored resume by ID."""
     tailored = db.query(TailoredResume).filter(TailoredResume.id == resume_id).first()
     if not tailored:
@@ -113,7 +192,7 @@ def get_resume(resume_id: int, db: Session = Depends(get_db)):
 
     user = db.query(User).filter(User.id == tailored.user_id).first()
     user_info = serialize_full_profile(user)["user"] if user else {}
-    html_preview = generate_resume_html(tailored.generated_resume_content or {}, user_info)
+    html_preview = generate_resume_html(tailored.generated_resume_content or {}, user_info, template)
 
     return {
         "id": tailored.id,

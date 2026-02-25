@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { listProfiles, generateResume, parseJobDescription } from '../api/client';
+import ScoreGauge from '../components/ScoreGauge';
+import { listProfiles, generateResume, parseJobDescription, getQuickScore, saveJob } from '../api/client';
 
 function Tailor() {
   const navigate = useNavigate();
@@ -10,7 +11,11 @@ function Tailor() {
   const [loading, setLoading] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [parsedJob, setParsedJob] = useState(null);
-  const [step, setStep] = useState(1); // 1: paste JD, 2: review parsed, 3: generating
+  const [step, setStep] = useState(1); // 1: paste JD, 2: review parsed + quick score, 3: generating
+  const [quickScore, setQuickScore] = useState(null);
+  const [scoring, setScoring] = useState(false);
+  const [savingToTracker, setSavingToTracker] = useState(false);
+  const [savedJobId, setSavedJobId] = useState(null);
 
   useEffect(() => {
     async function load() {
@@ -33,6 +38,17 @@ function Tailor() {
       setParsedJob(result);
       setStep(2);
       toast.success('Job description parsed');
+
+      // Auto-trigger quick score
+      setScoring(true);
+      try {
+        const scoreResult = await getQuickScore(userId, jobDescription);
+        setQuickScore(scoreResult);
+      } catch {
+        // Score is optional — don't block the flow
+      } finally {
+        setScoring(false);
+      }
     } catch (err) {
       toast.error(`Failed to parse: ${err.message}`);
     } finally {
@@ -40,11 +56,29 @@ function Tailor() {
     }
   }
 
+  async function handleSaveToTracker() {
+    setSavingToTracker(true);
+    try {
+      const result = await saveJob({
+        user_id: userId,
+        job_title: parsedJob?.job_title || 'Untitled Job',
+        company_name: parsedJob?.company_name,
+        job_description_text: jobDescription,
+      });
+      setSavedJobId(result.id);
+      toast.success('Job saved to tracker!');
+    } catch (err) {
+      toast.error(`Failed to save: ${err.message}`);
+    } finally {
+      setSavingToTracker(false);
+    }
+  }
+
   async function handleGenerate() {
     setStep(3);
     setLoading(true);
     try {
-      const result = await generateResume(userId, jobDescription, parsedJob);
+      const result = await generateResume(userId, jobDescription, parsedJob, savedJobId);
       toast.success('Resume generated!');
       navigate(`/results/${result.resume_id}`);
     } catch (err) {
@@ -79,7 +113,7 @@ function Tailor() {
       <div className="flex items-center gap-4">
         {[
           { num: 1, label: 'Paste JD' },
-          { num: 2, label: 'Review' },
+          { num: 2, label: 'Review & Score' },
           { num: 3, label: 'Generate' },
         ].map(({ num, label }) => (
           <div key={num} className="flex items-center gap-2">
@@ -128,9 +162,44 @@ function Tailor() {
         </div>
       )}
 
-      {/* Step 2: Review Parsed Data */}
+      {/* Step 2: Review Parsed Data + Quick Score */}
       {step === 2 && parsedJob && (
         <div className="space-y-4">
+          {/* Quick Score Card */}
+          {(scoring || quickScore) && (
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+              {scoring ? (
+                <div className="flex items-center gap-3">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+                  <span className="text-gray-600 dark:text-gray-400">Calculating match score...</span>
+                </div>
+              ) : quickScore && (
+                <div className="flex items-center gap-6">
+                  <ScoreGauge score={quickScore.overall_score} />
+                  <div className="flex-1">
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Quick Match Score</h2>
+                    <p className="text-gray-600 dark:text-gray-400 text-sm mt-1">{quickScore.verdict}</p>
+                    {quickScore.breakdown?.hard_skills && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {(quickScore.breakdown.hard_skills.matched || []).slice(0, 5).map((s, i) => (
+                          <span key={i} className="px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded text-xs">{s}</span>
+                        ))}
+                        {(quickScore.breakdown.hard_skills.missing || []).slice(0, 5).map((s, i) => (
+                          <span key={i} className="px-2 py-0.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded text-xs">{s}</span>
+                        ))}
+                      </div>
+                    )}
+                    {quickScore.overall_score < 40 && (
+                      <p className="text-sm text-orange-600 dark:text-orange-400 mt-2">
+                        Low match — consider upskilling or looking at more aligned roles.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Parsed Job Description</h2>
 
@@ -158,9 +227,7 @@ function Tailor() {
                 <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Required Skills</span>
                 <div className="flex flex-wrap gap-2 mt-1">
                   {parsedJob.required_skills.map((s, i) => (
-                    <span key={i} className="px-2 py-1 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded text-xs font-medium">
-                      {s}
-                    </span>
+                    <span key={i} className="px-2 py-1 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded text-xs font-medium">{s}</span>
                   ))}
                 </div>
               </div>
@@ -171,9 +238,7 @@ function Tailor() {
                 <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Preferred Skills</span>
                 <div className="flex flex-wrap gap-2 mt-1">
                   {parsedJob.preferred_skills.map((s, i) => (
-                    <span key={i} className="px-2 py-1 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 rounded text-xs font-medium">
-                      {s}
-                    </span>
+                    <span key={i} className="px-2 py-1 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 rounded text-xs font-medium">{s}</span>
                   ))}
                 </div>
               </div>
@@ -184,9 +249,7 @@ function Tailor() {
                 <span className="text-sm font-medium text-gray-500 dark:text-gray-400">ATS Keywords</span>
                 <div className="flex flex-wrap gap-2 mt-1">
                   {parsedJob.ats_keywords.map((k, i) => (
-                    <span key={i} className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded text-xs font-medium">
-                      {k}
-                    </span>
+                    <span key={i} className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded text-xs font-medium">{k}</span>
                   ))}
                 </div>
               </div>
@@ -197,16 +260,16 @@ function Tailor() {
                 <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Key Responsibilities</span>
                 <ul className="mt-1 space-y-1">
                   {parsedJob.key_responsibilities.map((r, i) => (
-                    <li key={i} className="text-sm text-gray-600 dark:text-gray-400 flex"><span className="mr-2">•</span>{r}</li>
+                    <li key={i} className="text-sm text-gray-600 dark:text-gray-400 flex"><span className="mr-2">&bull;</span>{r}</li>
                   ))}
                 </ul>
               </div>
             )}
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             <button
-              onClick={() => setStep(1)}
+              onClick={() => { setStep(1); setQuickScore(null); setSavedJobId(null); }}
               className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 font-medium"
             >
               Back
@@ -215,8 +278,24 @@ function Tailor() {
               onClick={handleGenerate}
               className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium transition-colors"
             >
-              Generate Tailored Resume
+              {quickScore ? `Score: ${Math.round(quickScore.overall_score)}% — Generate Tailored Resume` : 'Generate Tailored Resume'}
             </button>
+            {!savedJobId ? (
+              <button
+                onClick={handleSaveToTracker}
+                disabled={savingToTracker}
+                className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 font-medium border border-gray-300 dark:border-gray-600 text-sm"
+              >
+                {savingToTracker ? 'Saving...' : 'Save to Tracker'}
+              </button>
+            ) : (
+              <span className="px-4 py-2 text-green-600 dark:text-green-400 text-sm font-medium flex items-center gap-1">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Saved to Tracker
+              </span>
+            )}
           </div>
         </div>
       )}

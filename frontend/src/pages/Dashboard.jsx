@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { listProfiles, getResumeHistory } from '../api/client';
+import { listProfiles, getResumeHistory, getJobStats } from '../api/client';
 
 function Dashboard() {
   const [profiles, setProfiles] = useState([]);
   const [history, setHistory] = useState([]);
+  const [jobStats, setJobStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -13,8 +14,12 @@ function Dashboard() {
         const profileList = await listProfiles();
         setProfiles(profileList);
         if (profileList.length > 0) {
-          const hist = await getResumeHistory(profileList[0].id);
+          const [hist, stats] = await Promise.all([
+            getResumeHistory(profileList[0].id),
+            getJobStats(profileList[0].id).catch(() => null),
+          ]);
           setHistory(hist);
+          setJobStats(stats);
         }
       } catch (err) {
         console.error('Failed to load dashboard:', err);
@@ -93,6 +98,31 @@ function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* Application Funnel */}
+      {jobStats && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Application Pipeline</h2>
+            <Link to="/tracker" className="text-sm text-primary-600 hover:underline">View Tracker</Link>
+          </div>
+          <div className="grid grid-cols-5 gap-3">
+            {[
+              { key: 'saved', label: 'Saved', color: 'bg-gray-500' },
+              { key: 'applied', label: 'Applied', color: 'bg-blue-500' },
+              { key: 'interviewing', label: 'Interviewing', color: 'bg-yellow-500' },
+              { key: 'offered', label: 'Offered', color: 'bg-green-500' },
+              { key: 'rejected', label: 'Rejected', color: 'bg-red-500' },
+            ].map(col => (
+              <div key={col.key} className="text-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                <div className={`w-2 h-2 rounded-full ${col.color} mx-auto mb-1`}></div>
+                <div className="text-2xl font-bold text-gray-900 dark:text-white">{jobStats[col.key] || 0}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">{col.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Profile Summary */}
       {profiles.length > 0 && (

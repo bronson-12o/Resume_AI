@@ -3,21 +3,34 @@ import { useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import ScoreGauge from '../components/ScoreGauge';
 import ResumePreview from '../components/ResumePreview';
+import ResumeEditor from '../components/ResumeEditor';
+import TemplateSelector from '../components/TemplateSelector';
 import GapCard from '../components/GapCard';
-import { getResume, downloadResume, getSectorSuggestions, listProfiles } from '../api/client';
+import {
+  getResume, downloadResume, getSectorSuggestions, listProfiles,
+  updateResume, regenerateSection,
+  generateCoverLetter, downloadCoverLetter,
+} from '../api/client';
 
 function Results() {
   const { resumeId } = useParams();
   const [resume, setResume] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeSection, setActiveSection] = useState('preview'); // preview, score, recommendations, sectors
+  const [activeSection, setActiveSection] = useState('editor'); // editor, preview, score, recommendations, sectors, cover-letter
   const [sectors, setSectors] = useState(null);
   const [loadingSectors, setLoadingSectors] = useState(false);
+  const [template, setTemplate] = useState('ats_classic');
+  const [saving, setSaving] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  // Cover letter state
+  const [coverLetter, setCoverLetter] = useState(null);
+  const [coverLetterLoading, setCoverLetterLoading] = useState(false);
+  const [coverLetterTone, setCoverLetterTone] = useState('formal');
 
   useEffect(() => {
     async function load() {
       try {
-        const data = await getResume(resumeId);
+        const data = await getResume(resumeId, template);
         setResume(data);
       } catch (err) {
         toast.error('Failed to load resume');
@@ -28,12 +41,50 @@ function Results() {
     load();
   }, [resumeId]);
 
+  // Reload HTML when template changes
+  useEffect(() => {
+    if (!resume) return;
+    async function reload() {
+      try {
+        const data = await getResume(resumeId, template);
+        setResume(prev => ({ ...prev, html_preview: data.html_preview }));
+      } catch {}
+    }
+    reload();
+  }, [template]);
+
   async function handleDownload() {
     try {
-      await downloadResume(resumeId);
+      await downloadResume(resumeId, template);
       toast.success('Download started');
     } catch (err) {
       toast.error('Download failed');
+    }
+  }
+
+  async function handleSaveEdits(content) {
+    setSaving(true);
+    try {
+      const result = await updateResume(resumeId, content);
+      setResume(prev => ({ ...prev, resume_content: result.resume_content, html_preview: result.html_preview }));
+      toast.success('Changes saved');
+    } catch (err) {
+      toast.error('Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRegenerateSection(sectionName) {
+    setRegenerating(true);
+    try {
+      const result = await regenerateSection(resumeId, sectionName);
+      setResume(prev => ({ ...prev, resume_content: result.resume_content, html_preview: result.html_preview }));
+      toast.success(`${sectionName.replace('_', ' ')} regenerated`);
+    } catch (err) {
+      toast.error('Failed to regenerate section');
+    } finally {
+      setRegenerating(false);
     }
   }
 
@@ -50,6 +101,36 @@ function Results() {
       toast.error('Failed to load sector suggestions');
     } finally {
       setLoadingSectors(false);
+    }
+  }
+
+  async function handleGenerateCoverLetter() {
+    setCoverLetterLoading(true);
+    try {
+      const profiles = await listProfiles();
+      if (profiles.length === 0) { toast.error('No profile found'); return; }
+      const result = await generateCoverLetter({
+        user_id: profiles[0].id,
+        job_description: resume.job_description_text || '',
+        tailored_resume_id: parseInt(resumeId),
+        tone: coverLetterTone,
+      });
+      setCoverLetter(result);
+      toast.success('Cover letter generated!');
+    } catch (err) {
+      toast.error(`Failed to generate: ${err.message}`);
+    } finally {
+      setCoverLetterLoading(false);
+    }
+  }
+
+  async function handleDownloadCoverLetter() {
+    if (!coverLetter?.id) return;
+    try {
+      await downloadCoverLetter(coverLetter.id);
+      toast.success('Download started');
+    } catch (err) {
+      toast.error('Download failed');
     }
   }
 
@@ -98,13 +179,29 @@ function Results() {
         </button>
       </div>
 
+      {/* Template Selector */}
+      <TemplateSelector selected={template} onChange={setTemplate} />
+
       {/* Section Tabs */}
       <div className="flex flex-wrap gap-2">
-        <button onClick={() => setActiveSection('preview')} className={sectionBtnClass('preview')}>Resume Preview</button>
+        <button onClick={() => setActiveSection('editor')} className={sectionBtnClass('editor')}>Edit Resume</button>
+        <button onClick={() => setActiveSection('preview')} className={sectionBtnClass('preview')}>Preview</button>
         <button onClick={() => setActiveSection('score')} className={sectionBtnClass('score')}>Match Score</button>
         <button onClick={() => setActiveSection('recommendations')} className={sectionBtnClass('recommendations')}>Recommendations</button>
         <button onClick={() => { setActiveSection('sectors'); handleExploreSectors(); }} className={sectionBtnClass('sectors')}>Sector Explorer</button>
+        <button onClick={() => setActiveSection('cover-letter')} className={sectionBtnClass('cover-letter')}>Cover Letter</button>
       </div>
+
+      {/* Resume Editor */}
+      {activeSection === 'editor' && resume.resume_content && (
+        <ResumeEditor
+          resumeContent={resume.resume_content}
+          onSave={handleSaveEdits}
+          onRegenerateSection={handleRegenerateSection}
+          saving={saving}
+          regenerating={regenerating}
+        />
+      )}
 
       {/* Resume Preview */}
       {activeSection === 'preview' && (
@@ -139,7 +236,6 @@ function Results() {
                         {Math.round(data.score)}%
                       </span>
                     </div>
-                    {/* Score bar */}
                     <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2 mb-2">
                       <div
                         className={`h-2 rounded-full transition-all ${
@@ -215,7 +311,6 @@ function Results() {
               <p className="text-primary-800 dark:text-primary-300 font-medium">{recs.general_advice}</p>
             </div>
           )}
-
           {recs.skill_recommendations?.length > 0 && (
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
               <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Skill Gap Recommendations</h3>
@@ -226,7 +321,6 @@ function Results() {
               </div>
             </div>
           )}
-
           {recs.keyword_suggestions?.length > 0 && (
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
               <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Keyword Optimization Tips</h3>
@@ -234,15 +328,11 @@ function Results() {
                 {recs.keyword_suggestions.map((sug, i) => (
                   <div key={i} className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="px-2 py-0.5 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 rounded text-xs font-medium">
-                        {sug.missing_keyword}
-                      </span>
+                      <span className="px-2 py-0.5 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 rounded text-xs font-medium">{sug.missing_keyword}</span>
                       {sug.existing_equivalent && (
                         <>
                           <span className="text-gray-400 text-xs">~</span>
-                          <span className="px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded text-xs font-medium">
-                            {sug.existing_equivalent}
-                          </span>
+                          <span className="px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded text-xs font-medium">{sug.existing_equivalent}</span>
                         </>
                       )}
                     </div>
@@ -263,7 +353,6 @@ function Results() {
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
             </div>
           )}
-
           {sectors && (
             <>
               {sectors.career_insight && (
@@ -271,7 +360,6 @@ function Results() {
                   <p className="text-primary-800 dark:text-primary-300 font-medium">{sectors.career_insight}</p>
                 </div>
               )}
-
               {sectors.alternative_titles?.length > 0 && (
                 <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
                   <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Alternative Job Titles to Search</h3>
@@ -280,15 +368,12 @@ function Results() {
                       <div key={i} className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
                         <div className="font-medium text-gray-900 dark:text-white">{title.title}</div>
                         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{title.relevance}</p>
-                        {title.search_tip && (
-                          <p className="text-xs text-primary-600 dark:text-primary-400 mt-1">{title.search_tip}</p>
-                        )}
+                        {title.search_tip && <p className="text-xs text-primary-600 dark:text-primary-400 mt-1">{title.search_tip}</p>}
                       </div>
                     ))}
                   </div>
                 </div>
               )}
-
               {sectors.industry_suggestions?.length > 0 && (
                 <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
                   <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Industries to Consider</h3>
@@ -310,6 +395,63 @@ function Results() {
                 </div>
               )}
             </>
+          )}
+        </div>
+      )}
+
+      {/* Cover Letter */}
+      {activeSection === 'cover-letter' && (
+        <div className="space-y-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+            <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Generate Cover Letter</h3>
+            <div className="flex items-center gap-4 mb-4">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Tone:</label>
+              {['formal', 'conversational', 'enthusiastic'].map(tone => (
+                <button
+                  key={tone}
+                  onClick={() => setCoverLetterTone(tone)}
+                  className={`px-3 py-1 rounded-lg text-sm font-medium capitalize transition-colors ${
+                    coverLetterTone === tone
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
+                  }`}
+                >
+                  {tone}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={handleGenerateCoverLetter}
+              disabled={coverLetterLoading}
+              className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 font-medium transition-colors"
+            >
+              {coverLetterLoading ? (
+                <span className="flex items-center gap-2">
+                  <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></span>
+                  Generating...
+                </span>
+              ) : coverLetter ? 'Regenerate Cover Letter' : 'Generate Cover Letter'}
+            </button>
+          </div>
+
+          {coverLetter && (
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="font-semibold text-gray-900 dark:text-white">Your Cover Letter</h3>
+                <button
+                  onClick={handleDownloadCoverLetter}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Download .docx
+                </button>
+              </div>
+              <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                {coverLetter.content}
+              </div>
+            </div>
           )}
         </div>
       )}

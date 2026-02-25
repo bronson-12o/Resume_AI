@@ -1,5 +1,5 @@
 """Profile CRUD router - manages the master profile."""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from typing import Optional
@@ -396,3 +396,122 @@ def delete_certification(user_id: int, cert_id: int, db: Session = Depends(get_d
     db.delete(cert)
     db.commit()
     return {"message": "Certification deleted"}
+
+
+# --- Resume Import ---
+
+class ImportConfirmData(BaseModel):
+    name: str
+    email: EmailStr
+    phone: Optional[str] = None
+    location: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    portfolio_url: Optional[str] = None
+    professional_summary: Optional[str] = None
+    experiences: list[dict] = []
+    education: list[dict] = []
+    skills: list[dict] = []
+    projects: list[dict] = []
+    certifications: list[dict] = []
+
+
+@router.post("/import")
+async def import_resume(file: UploadFile = File(...)):
+    """Upload a resume (PDF/DOCX) and parse it into structured profile data for review."""
+    from backend.services.resume_parser import (
+        extract_text_from_docx, extract_text_from_pdf, parse_resume_to_profile,
+    )
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if ext not in ("pdf", "docx"):
+        raise HTTPException(status_code=400, detail="Only PDF and DOCX files are supported")
+
+    content = await file.read()
+
+    if ext == "docx":
+        text = extract_text_from_docx(content)
+    else:
+        text = extract_text_from_pdf(content)
+
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="Could not extract text from file")
+
+    parsed = parse_resume_to_profile(text)
+    return parsed
+
+
+@router.post("/{user_id}/import/confirm")
+def confirm_import(user_id: int, data: ImportConfirmData, db: Session = Depends(get_db)):
+    """Confirm and save imported resume data to an existing profile."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Update user fields
+    for field in ["name", "email", "phone", "location", "linkedin_url", "portfolio_url", "professional_summary"]:
+        value = getattr(data, field, None)
+        if value is not None:
+            setattr(user, field, value)
+
+    # Add experiences
+    for exp_data in data.experiences:
+        exp = WorkExperience(user_id=user_id, **{
+            "job_title": exp_data.get("job_title", ""),
+            "company_name": exp_data.get("company_name", ""),
+            "location": exp_data.get("location"),
+            "start_date": exp_data.get("start_date", ""),
+            "end_date": exp_data.get("end_date"),
+            "bullet_points": exp_data.get("bullet_points", []),
+            "skills_used": exp_data.get("skills_used", []),
+            "is_current": exp_data.get("is_current", False),
+        })
+        db.add(exp)
+
+    # Add education
+    for edu_data in data.education:
+        edu = Education(user_id=user_id, **{
+            "degree": edu_data.get("degree", ""),
+            "institution": edu_data.get("institution", ""),
+            "graduation_date": edu_data.get("graduation_date"),
+            "gpa": edu_data.get("gpa"),
+            "relevant_coursework": edu_data.get("relevant_coursework", []),
+        })
+        db.add(edu)
+
+    # Add skills
+    for skill_data in data.skills:
+        skill = Skill(user_id=user_id, **{
+            "skill_name": skill_data.get("skill_name", ""),
+            "category": skill_data.get("category", "programming"),
+            "proficiency_level": skill_data.get("proficiency_level", "intermediate"),
+        })
+        db.add(skill)
+
+    # Add projects
+    for proj_data in data.projects:
+        proj = Project(user_id=user_id, **{
+            "project_name": proj_data.get("project_name", ""),
+            "description": proj_data.get("description"),
+            "technologies_used": proj_data.get("technologies_used", []),
+            "url": proj_data.get("url"),
+            "bullet_points": proj_data.get("bullet_points", []),
+        })
+        db.add(proj)
+
+    # Add certifications
+    for cert_data in data.certifications:
+        cert = Certification(user_id=user_id, **{
+            "cert_name": cert_data.get("cert_name", ""),
+            "issuing_org": cert_data.get("issuing_org"),
+            "date_obtained": cert_data.get("date_obtained"),
+            "expiry_date": cert_data.get("expiry_date"),
+            "credential_url": cert_data.get("credential_url"),
+        })
+        db.add(cert)
+
+    db.commit()
+    db.refresh(user)
+    return serialize_full_profile(user)

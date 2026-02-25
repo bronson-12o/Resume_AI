@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import ProfileForm from '../components/ProfileForm';
 import SkillTag from '../components/SkillTag';
+import ImportReview from '../components/ImportReview';
 import {
   listProfiles, createProfile, updateProfile, getProfile,
   addExperience, updateExperience, deleteExperience,
@@ -9,6 +10,7 @@ import {
   addSkill, deleteSkill,
   addProject, updateProject, deleteProject,
   addCertification, updateCertification, deleteCertification,
+  importResume, confirmImport,
 } from '../api/client';
 
 const TABS = ['Personal Info', 'Experience', 'Education', 'Skills', 'Projects', 'Certifications'];
@@ -45,6 +47,46 @@ function Profile() {
     cert_name: '', issuing_org: '', date_obtained: '', expiry_date: '', credential_url: '',
   });
   const [editingCertId, setEditingCertId] = useState(null);
+  const [importMode, setImportMode] = useState(false);
+  const [importData, setImportData] = useState(null);
+  const [importing, setImporting] = useState(false);
+
+  async function handleFileUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    try {
+      const parsed = await importResume(file);
+      setImportData(parsed);
+      setImportMode(true);
+      toast.success('Resume parsed successfully! Review the data below.');
+    } catch (err) {
+      toast.error(`Import failed: ${err.message}`);
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  async function handleConfirmImport(data) {
+    setSaving(true);
+    try {
+      if (!userId) {
+        const created = await createProfile({ name: data.name, email: data.email, phone: data.phone, location: data.location, linkedin_url: data.linkedin_url, portfolio_url: data.portfolio_url, professional_summary: data.professional_summary });
+        setUserId(created.id);
+        await confirmImport(created.id, data);
+      } else {
+        await confirmImport(userId, data);
+      }
+      toast.success('Profile updated from resume!');
+      setImportMode(false);
+      setImportData(null);
+      await loadProfile();
+    } catch (err) {
+      toast.error(`Save failed: ${err.message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   useEffect(() => { loadProfile(); }, []);
 
@@ -336,9 +378,32 @@ function Profile() {
   const btnSecondary = "px-3 py-1.5 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors text-sm";
   const btnDanger = "px-3 py-1.5 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors text-sm";
 
+  if (importMode && importData) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Review Imported Resume</h1>
+        <ImportReview
+          data={importData}
+          onConfirm={handleConfirmImport}
+          onCancel={() => { setImportMode(false); setImportData(null); }}
+          saving={saving}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Master Profile</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Master Profile</h1>
+        <label className={`${importing ? 'opacity-50 cursor-wait' : 'cursor-pointer'} inline-flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium text-sm transition-colors`}>
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+          </svg>
+          {importing ? 'Parsing...' : 'Import Resume'}
+          <input type="file" accept=".pdf,.docx" onChange={handleFileUpload} className="hidden" disabled={importing} />
+        </label>
+      </div>
 
       {/* Tabs */}
       <div className="flex flex-wrap gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">

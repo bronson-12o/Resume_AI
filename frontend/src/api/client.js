@@ -118,6 +118,24 @@ export async function deleteCertification(userId, certId) {
   return request(`/profile/${userId}/certifications/${certId}`, { method: 'DELETE' });
 }
 
+// --- Resume Import ---
+
+export async function importResume(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const url = `${API_BASE}/profile/import`;
+  const response = await fetch(url, { method: 'POST', body: formData });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Import failed' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function confirmImport(userId, data) {
+  return request(`/profile/${userId}/import/confirm`, { method: 'POST', body: JSON.stringify(data) });
+}
+
 // --- Jobs ---
 
 export async function parseJobDescription(jobDescription) {
@@ -130,25 +148,43 @@ export async function getMatchScore(userId, parsedJob) {
   return request('/scoring/match', { method: 'POST', body: JSON.stringify({ user_id: userId, parsed_job: parsedJob }) });
 }
 
+export async function getQuickScore(userId, jobDescription) {
+  return request('/scoring/quick', { method: 'POST', body: JSON.stringify({ user_id: userId, job_description: jobDescription }) });
+}
+
 // --- Resume ---
 
-export async function generateResume(userId, jobDescription, parsedJob = null) {
+export async function generateResume(userId, jobDescription, parsedJob = null, savedJobId = null) {
   return request('/resume/generate', {
     method: 'POST',
-    body: JSON.stringify({ user_id: userId, job_description: jobDescription, parsed_job: parsedJob }),
+    body: JSON.stringify({ user_id: userId, job_description: jobDescription, parsed_job: parsedJob, saved_job_id: savedJobId }),
   });
 }
 
-export async function getResume(resumeId) {
-  return request(`/resume/${resumeId}`);
+export async function getResume(resumeId, template = 'ats_classic') {
+  return request(`/resume/${resumeId}?template=${template}`);
+}
+
+export async function updateResume(resumeId, resumeContent) {
+  return request(`/resume/${resumeId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ generated_resume_content: resumeContent }),
+  });
+}
+
+export async function regenerateSection(resumeId, sectionName) {
+  return request(`/resume/${resumeId}/regenerate-section`, {
+    method: 'POST',
+    body: JSON.stringify({ section_name: sectionName }),
+  });
 }
 
 export async function getResumeHistory(userId) {
   return request(`/resume/history/${userId}`);
 }
 
-export async function downloadResume(resumeId) {
-  const blob = await request(`/resume/${resumeId}/download`);
+export async function downloadResume(resumeId, template = 'ats_classic') {
+  const blob = await request(`/resume/${resumeId}/download?template=${template}`);
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -170,4 +206,64 @@ export async function getSkillRecommendations(userId, matchResult) {
 
 export async function getSectorSuggestions(userId) {
   return request('/recommendations/sectors', { method: 'POST', body: JSON.stringify({ user_id: userId }) });
+}
+
+// --- Job Tracker ---
+
+export async function saveJob(data) {
+  return request('/tracker', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function listSavedJobs(userId, status = null) {
+  const params = status ? `?status=${status}` : '';
+  return request(`/tracker/${userId}${params}`);
+}
+
+export async function getSavedJob(userId, jobId) {
+  return request(`/tracker/${userId}/${jobId}`);
+}
+
+export async function updateSavedJob(jobId, data) {
+  return request(`/tracker/${jobId}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+
+export async function deleteSavedJob(jobId) {
+  return request(`/tracker/${jobId}`, { method: 'DELETE' });
+}
+
+export async function getJobStats(userId) {
+  return request(`/tracker/${userId}/stats/funnel`);
+}
+
+// --- Cover Letter ---
+
+export async function generateCoverLetter(data) {
+  return request('/cover-letter/generate', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function getCoverLetter(coverLetterId) {
+  return request(`/cover-letter/${coverLetterId}`);
+}
+
+export async function updateCoverLetter(coverLetterId, content) {
+  return request(`/cover-letter/${coverLetterId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ content }),
+  });
+}
+
+export async function downloadCoverLetter(coverLetterId) {
+  const blob = await request(`/cover-letter/${coverLetterId}/download`);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `cover_letter_${coverLetterId}.docx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+export async function getCoverLetterHistory(userId) {
+  return request(`/cover-letter/history/${userId}`);
 }

@@ -31,6 +31,8 @@ class User(Base):
     projects = relationship("Project", back_populates="user", cascade="all, delete-orphan")
     certifications = relationship("Certification", back_populates="user", cascade="all, delete-orphan")
     tailored_resumes = relationship("TailoredResume", back_populates="user", cascade="all, delete-orphan")
+    saved_jobs = relationship("SavedJob", back_populates="user", cascade="all, delete-orphan")
+    cover_letters = relationship("CoverLetter", back_populates="user", cascade="all, delete-orphan")
 
 
 class WorkExperience(Base):
@@ -117,6 +119,52 @@ class TailoredResume(Base):
     matched_keywords = Column(JSON, default=list)
     missing_keywords = Column(JSON, default=list)
     recommendations = Column(JSON, nullable=True)
+    saved_job_id = Column(Integer, ForeignKey("saved_jobs.id"), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User", back_populates="tailored_resumes")
+    saved_job = relationship("SavedJob", back_populates="tailored_resumes", foreign_keys=[saved_job_id])
+
+
+class SavedJob(Base):
+    __tablename__ = "saved_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    job_title = Column(String(255), nullable=False)
+    company_name = Column(String(255), nullable=True)
+    job_url = Column(String(500), nullable=True)
+    job_description_text = Column(Text, nullable=True)
+    parsed_job_data = Column(JSON, nullable=True)
+    quick_score = Column(Float, nullable=True)
+    status = Column(String(20), default="saved")  # saved, applied, interviewing, offered, rejected
+    applied_date = Column(String(20), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    user = relationship("User", back_populates="saved_jobs")
+    tailored_resumes = relationship("TailoredResume", back_populates="saved_job", foreign_keys=[TailoredResume.saved_job_id])
+    cover_letters = relationship("CoverLetter", back_populates="saved_job")
+
+
+class CoverLetter(Base):
+    __tablename__ = "cover_letters"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    tailored_resume_id = Column(Integer, ForeignKey("tailored_resumes.id"), nullable=True)
+    saved_job_id = Column(Integer, ForeignKey("saved_jobs.id"), nullable=True)
+    job_title = Column(String(255), nullable=True)
+    company_name = Column(String(255), nullable=True)
+    content = Column(Text, nullable=True)
+    tone = Column(String(20), default="formal")  # formal, conversational, enthusiastic
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User", back_populates="cover_letters")
+    tailored_resume = relationship("TailoredResume")
+    saved_job = relationship("SavedJob", back_populates="cover_letters")

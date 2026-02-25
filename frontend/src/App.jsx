@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import Profile from './pages/Profile';
 import Tailor from './pages/Tailor';
 import Results from './pages/Results';
+import Tracker from './pages/Tracker';
 
 function App() {
   const [darkMode, setDarkMode] = useState(() => {
@@ -48,6 +49,9 @@ function App() {
                 <NavLink to="/tailor" className={navLinkClass}>
                   Tailor
                 </NavLink>
+                <NavLink to="/tracker" className={navLinkClass}>
+                  Tracker
+                </NavLink>
 
                 <button
                   onClick={() => setDarkMode(!darkMode)}
@@ -76,6 +80,7 @@ function App() {
             <Route path="/profile" element={<Profile />} />
             <Route path="/tailor" element={<Tailor />} />
             <Route path="/results/:resumeId" element={<Results />} />
+            <Route path="/tracker" element={<Tracker />} />
           </Routes>
         </main>
       </div>

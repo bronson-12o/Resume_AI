@@ -12,7 +12,7 @@ from slowapi.errors import RateLimitExceeded
 load_dotenv()
 
 from backend.database.database import init_db
-from backend.routers import profile, jobs, scoring, resume, recommendations
+from backend.routers import profile, jobs, scoring, resume, recommendations, jobs_tracker, cover_letter
 
 
 @asynccontextmanager
@@ -26,7 +26,7 @@ limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(
     title="ResumeAI",
     description="AI-powered resume tailoring tool that optimizes resumes for specific job postings",
-    version="1.0.0",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
@@ -49,6 +49,8 @@ app.include_router(jobs.router)
 app.include_router(scoring.router)
 app.include_router(resume.router)
 app.include_router(recommendations.router)
+app.include_router(jobs_tracker.router)
+app.include_router(cover_letter.router)
 
 
 @app.get("/api/health")
