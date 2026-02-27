@@ -1,29 +1,51 @@
 /**
  * API client helper functions for ResumeAI backend.
  */
+import toast from 'react-hot-toast';
 
 const API_BASE = '/api';
+const REQUEST_TIMEOUT = 30000; // 30 seconds
 
 async function request(path, options = {}) {
   const url = `${API_BASE}${path}`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+
   const config = {
     headers: { 'Content-Type': 'application/json' },
+    signal: controller.signal,
     ...options,
   };
 
-  const response = await fetch(url, config);
+  try {
+    const response = await fetch(url, config);
+    clearTimeout(timeoutId);
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Request failed' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Request failed' }));
+      const message = error.detail || `HTTP ${response.status}`;
+      toast.error(message);
+      throw new Error(message);
+    }
+
+    // Handle blob responses (file downloads)
+    if (response.headers.get('content-type')?.includes('application/vnd')) {
+      return response.blob();
+    }
+
+    return response.json();
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      toast.error('Request timed out. Please try again.');
+      throw new Error('Request timed out');
+    }
+    // Don't double-toast if already handled above
+    if (!err.message?.startsWith('HTTP') && err.name !== 'AbortError') {
+      toast.error(err.message || 'Network error');
+    }
+    throw err;
   }
-
-  // Handle blob responses (file downloads)
-  if (response.headers.get('content-type')?.includes('application/vnd')) {
-    return response.blob();
-  }
-
-  return response.json();
 }
 
 // --- Profile ---
@@ -37,7 +59,9 @@ export async function getProfile(userId) {
 }
 
 export async function listProfiles() {
-  return request('/profile');
+  const result = await request('/profile');
+  // Handle both paginated and flat array responses for backwards compat
+  return Array.isArray(result) ? result : result.items || [];
 }
 
 export async function updateProfile(userId, data) {
@@ -127,7 +151,9 @@ export async function importResume(file) {
   const response = await fetch(url, { method: 'POST', body: formData });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Import failed' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
+    const message = error.detail || `HTTP ${response.status}`;
+    toast.error(message);
+    throw new Error(message);
   }
   return response.json();
 }
@@ -180,7 +206,8 @@ export async function regenerateSection(resumeId, sectionName) {
 }
 
 export async function getResumeHistory(userId) {
-  return request(`/resume/history/${userId}`);
+  const result = await request(`/resume/history/${userId}`);
+  return Array.isArray(result) ? result : result.items || [];
 }
 
 export async function downloadResume(resumeId, template = 'ats_classic') {
@@ -216,7 +243,8 @@ export async function saveJob(data) {
 
 export async function listSavedJobs(userId, status = null) {
   const params = status ? `?status=${status}` : '';
-  return request(`/tracker/${userId}${params}`);
+  const result = await request(`/tracker/${userId}${params}`);
+  return Array.isArray(result) ? result : result.items || [];
 }
 
 export async function getSavedJob(userId, jobId) {
@@ -265,5 +293,6 @@ export async function downloadCoverLetter(coverLetterId) {
 }
 
 export async function getCoverLetterHistory(userId) {
-  return request(`/cover-letter/history/${userId}`);
+  const result = await request(`/cover-letter/history/${userId}`);
+  return Array.isArray(result) ? result : result.items || [];
 }

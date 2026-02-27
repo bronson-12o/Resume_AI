@@ -4,15 +4,6 @@ from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
 
 from backend.main import app
-from backend.database.database import Base, engine
-
-
-@pytest.fixture(autouse=True)
-def setup_db():
-    """Create tables before each test and drop after."""
-    Base.metadata.create_all(bind=engine)
-    yield
-    Base.metadata.drop_all(bind=engine)
 
 
 client = TestClient(app)
@@ -103,7 +94,9 @@ def test_list_profiles():
 
     response = client.get("/api/profile")
     assert response.status_code == 200
-    assert len(response.json()) >= 2
+    data = response.json()
+    assert data["total"] >= 2
+    assert len(data["items"]) >= 2
 
 
 def test_delete_profile():
@@ -326,7 +319,7 @@ def test_generate_resume(mock_recs, mock_score, mock_parse, mock_gen):
 
     response = client.post("/api/resume/generate", json={
         "user_id": user_id,
-        "job_description": "Looking for a Python developer...",
+        "job_description": "Looking for a Python developer with experience in building REST APIs and web applications at our company",
     })
     assert response.status_code == 200
     data = response.json()

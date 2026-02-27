@@ -1,13 +1,20 @@
 """Cover letter generation router."""
+import logging
+import re
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Optional
+from typing import Literal, Optional
+
+logger = logging.getLogger(__name__)
+
+from fastapi import Query
 
 from backend.database.database import get_db
 from backend.database.models import User, CoverLetter, TailoredResume
-from backend.routers.profile import serialize_full_profile
+from backend.routers.profile import serialize_full_profile, get_user_with_profile
 from backend.services.parser_service import parse_job_description
 from backend.services.cover_letter_builder import generate_cover_letter, generate_cover_letter_docx
 
@@ -20,7 +27,7 @@ class CoverLetterGenerateRequest(BaseModel):
     parsed_job: Optional[dict] = None
     tailored_resume_id: Optional[int] = None
     saved_job_id: Optional[int] = None
-    tone: str = "formal"  # formal, conversational, enthusiastic
+    tone: Literal["formal", "conversational", "enthusiastic"] = "formal"
 
 
 class CoverLetterUpdateRequest(BaseModel):
@@ -30,7 +37,7 @@ class CoverLetterUpdateRequest(BaseModel):
 @router.post("/generate")
 def generate(data: CoverLetterGenerateRequest, db: Session = Depends(get_db)):
     """Generate a tailored cover letter."""
-    user = db.query(User).filter(User.id == data.user_id).first()
+    user = get_user_with_profile(db, data.user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -112,25 +119,28 @@ def download_cover_letter(cover_letter_id: int, db: Session = Depends(get_db)):
 
     docx_buffer = generate_cover_letter_docx(cl.content or "", user_info)
 
-    filename = f"cover_letter_{cl.company_name or 'letter'}_{cl.job_title or ''}.docx".replace(" ", "_")
+    raw_name = f"cover_letter_{cl.company_name or 'letter'}_{cl.job_title or ''}.docx"
+    filename = re.sub(r"[^\w\s\-.]", "", raw_name).replace(" ", "_")
 
     return StreamingResponse(
         docx_buffer,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
 @router.get("/history/{user_id}")
-def get_cover_letter_history(user_id: int, db: Session = Depends(get_db)):
+def get_cover_letter_history(
+    user_id: int,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
     """List all cover letters for a user."""
-    letters = (
-        db.query(CoverLetter)
-        .filter(CoverLetter.user_id == user_id)
-        .order_by(CoverLetter.created_at.desc())
-        .all()
-    )
-    return [
+    base = db.query(CoverLetter).filter(CoverLetter.user_id == user_id)
+    total = base.count()
+    letters = base.order_by(CoverLetter.created_at.desc()).offset(skip).limit(limit).all()
+    items = [
         {
             "id": cl.id,
             "job_title": cl.job_title,
@@ -141,3 +151,4 @@ def get_cover_letter_history(user_id: int, db: Session = Depends(get_db)):
         }
         for cl in letters
     ]
+    return {"items": items, "total": total, "skip": skip, "limit": limit}

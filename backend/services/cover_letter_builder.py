@@ -1,33 +1,40 @@
 """Cover letter generation service."""
 import io
+import logging
+
 from docx import Document
 from docx.shared import Pt, Inches
-from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-from backend.services.ai_service import ai_service
+from backend.services.ai_service import ai_service, AIServiceError
 from backend.utils.templates import COVER_LETTER_SYSTEM_PROMPT
+
+logger = logging.getLogger(__name__)
 
 
 def generate_cover_letter(profile_data: dict, job_description: str, parsed_job: dict, tone: str = "formal") -> str:
     """Generate a tailored cover letter using AI."""
     profile_text = _format_profile_for_cover_letter(profile_data)
 
-    result = ai_service.generate(
-        system_prompt=COVER_LETTER_SYSTEM_PROMPT,
-        user_prompt=(
-            f"Candidate Profile:\n{profile_text}\n\n"
-            f"Job Description:\n{job_description}\n\n"
-            f"Parsed Job Info:\n"
-            f"Job Title: {parsed_job.get('job_title', 'N/A')}\n"
-            f"Company: {parsed_job.get('company_name', 'N/A')}\n"
-            f"Required Skills: {', '.join(parsed_job.get('required_skills', []))}\n"
-            f"Key Responsibilities: {', '.join(parsed_job.get('key_responsibilities', []))}\n\n"
-            f"Tone: {tone}\n\n"
-            f"Generate a professional cover letter."
-        ),
-        response_format="json",
-    )
-    return result.get("cover_letter", result.get("content", ""))
+    try:
+        result = ai_service.generate(
+            system_prompt=COVER_LETTER_SYSTEM_PROMPT,
+            user_prompt=(
+                f"Candidate Profile:\n{profile_text}\n\n"
+                f"Job Description:\n{job_description}\n\n"
+                f"Parsed Job Info:\n"
+                f"Job Title: {parsed_job.get('job_title', 'N/A')}\n"
+                f"Company: {parsed_job.get('company_name', 'N/A')}\n"
+                f"Required Skills: {', '.join(parsed_job.get('required_skills', []))}\n"
+                f"Key Responsibilities: {', '.join(parsed_job.get('key_responsibilities', []))}\n\n"
+                f"Tone: {tone}\n\n"
+                f"Generate a professional cover letter."
+            ),
+            response_format="json",
+        )
+        return result.get("cover_letter", result.get("content", ""))
+    except AIServiceError as e:
+        logger.error(f"Cover letter generation failed: {e}")
+        raise ValueError("Failed to generate cover letter. The AI service is temporarily unavailable. Please try again.")
 
 
 def generate_cover_letter_docx(content: str, user_info: dict) -> io.BytesIO:

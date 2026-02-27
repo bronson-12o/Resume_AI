@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from backend.database.database import get_db
 from backend.database.models import User
-from backend.routers.profile import serialize_full_profile
+from backend.routers.profile import serialize_full_profile, get_user_with_profile
 from backend.services.scorer_service import calculate_match_score
 from backend.services.parser_service import parse_job_description
 
@@ -25,7 +25,7 @@ class QuickScoreRequest(BaseModel):
 @router.post("/match")
 def score_match(data: MatchRequest, db: Session = Depends(get_db)):
     """Calculate match score between a user's profile and a parsed job description."""
-    user = db.query(User).filter(User.id == data.user_id).first()
+    user = get_user_with_profile(db, data.user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -37,7 +37,7 @@ def score_match(data: MatchRequest, db: Session = Depends(get_db)):
 @router.post("/quick")
 def quick_score(data: QuickScoreRequest, db: Session = Depends(get_db)):
     """Parse a job description and calculate match score in one call."""
-    user = db.query(User).filter(User.id == data.user_id).first()
+    user = get_user_with_profile(db, data.user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 

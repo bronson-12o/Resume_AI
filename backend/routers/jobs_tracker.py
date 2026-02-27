@@ -1,13 +1,19 @@
 """Job tracker router - save jobs, track application status."""
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from pydantic import BaseModel
-from typing import Optional
+from typing import Literal, Optional
+
+logger = logging.getLogger(__name__)
+
+from sqlalchemy.orm import joinedload
 
 from backend.database.database import get_db
 from backend.database.models import User, SavedJob
-from backend.routers.profile import serialize_full_profile
+from backend.routers.profile import serialize_full_profile, get_user_with_profile
 from backend.services.parser_service import parse_job_description
 from backend.services.scorer_service import calculate_match_score
 
@@ -24,7 +30,7 @@ class SaveJobRequest(BaseModel):
 
 
 class UpdateJobRequest(BaseModel):
-    status: Optional[str] = None  # saved, applied, interviewing, offered, rejected
+    status: Optional[Literal["saved", "applied", "interviewing", "offered", "rejected"]] = None
     notes: Optional[str] = None
     job_title: Optional[str] = None
     company_name: Optional[str] = None
@@ -55,7 +61,7 @@ def _serialize_job(job: SavedJob) -> dict:
 @router.post("")
 def save_job(data: SaveJobRequest, db: Session = Depends(get_db)):
     """Save a job to the tracker. Auto-parses JD and calculates quick score if JD provided."""
-    user = db.query(User).filter(User.id == data.user_id).first()
+    user = get_user_with_profile(db, data.user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -92,14 +98,26 @@ def save_job(data: SaveJobRequest, db: Session = Depends(get_db)):
 def list_saved_jobs(
     user_id: int,
     status: Optional[str] = Query(default=None),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
     """List all saved jobs for a user, optionally filtered by status."""
-    query = db.query(SavedJob).filter(SavedJob.user_id == user_id)
+    base = db.query(SavedJob).filter(SavedJob.user_id == user_id)
     if status:
-        query = query.filter(SavedJob.status == status)
-    jobs = query.order_by(SavedJob.updated_at.desc()).all()
-    return [_serialize_job(j) for j in jobs]
+        base = base.filter(SavedJob.status == status)
+    total = base.count()
+    jobs = (
+        base.options(
+            joinedload(SavedJob.tailored_resumes),
+            joinedload(SavedJob.cover_letters),
+        )
+        .order_by(SavedJob.updated_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    return {"items": [_serialize_job(j) for j in jobs], "total": total, "skip": skip, "limit": limit}
 
 
 @router.get("/{user_id}/{job_id}")

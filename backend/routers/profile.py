@@ -1,8 +1,15 @@
 """Profile CRUD router - manages the master profile."""
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from sqlalchemy.orm import Session
-from pydantic import BaseModel, EmailStr
+import logging
+import re
+
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from sqlalchemy.orm import Session, joinedload
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB
 
 from backend.database.database import get_db
 from backend.database.models import (
@@ -15,7 +22,7 @@ router = APIRouter(prefix="/api/profile", tags=["profile"])
 # --- Pydantic Schemas ---
 
 class UserCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=255)
     email: EmailStr
     phone: Optional[str] = None
     location: Optional[str] = None
@@ -147,6 +154,23 @@ def serialize_full_profile(user: User) -> dict:
     }
 
 
+def get_user_with_profile(db: Session, user_id: int) -> User:
+    """Fetch a user with all profile relationships eagerly loaded (prevents N+1 queries)."""
+    user = (
+        db.query(User)
+        .options(
+            joinedload(User.experiences),
+            joinedload(User.education),
+            joinedload(User.skills),
+            joinedload(User.projects),
+            joinedload(User.certifications),
+        )
+        .filter(User.id == user_id)
+        .first()
+    )
+    return user
+
+
 # --- User CRUD ---
 
 @router.post("")
@@ -163,16 +187,21 @@ def create_profile(data: UserCreate, db: Session = Depends(get_db)):
 
 @router.get("/{user_id}")
 def get_profile(user_id: int, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.id == user_id).first()
+    user = get_user_with_profile(db, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return serialize_full_profile(user)
 
 
 @router.get("")
-def list_profiles(db: Session = Depends(get_db)):
-    users = db.query(User).all()
-    return [serialize_user(u) for u in users]
+def list_profiles(
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    total = db.query(User).count()
+    users = db.query(User).offset(skip).limit(limit).all()
+    return {"items": [serialize_user(u) for u in users], "total": total, "skip": skip, "limit": limit}
 
 
 @router.put("/{user_id}")
@@ -431,15 +460,30 @@ async def import_resume(file: UploadFile = File(...)):
 
     content = await file.read()
 
-    if ext == "docx":
-        text = extract_text_from_docx(content)
-    else:
-        text = extract_text_from_pdf(content)
+    if len(content) > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail=f"File too large. Maximum size is {MAX_UPLOAD_SIZE // (1024*1024)} MB.")
+
+    # Validate file magic bytes
+    if ext == "pdf" and not content[:5].startswith(b"%PDF"):
+        raise HTTPException(status_code=400, detail="File does not appear to be a valid PDF")
+    if ext == "docx" and not content[:2] == b"PK":
+        raise HTTPException(status_code=400, detail="File does not appear to be a valid DOCX")
+
+    try:
+        if ext == "docx":
+            text = extract_text_from_docx(content)
+        else:
+            text = extract_text_from_pdf(content)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     if not text.strip():
         raise HTTPException(status_code=400, detail="Could not extract text from file")
 
-    parsed = parse_resume_to_profile(text)
+    try:
+        parsed = parse_resume_to_profile(text)
+    except ValueError as e:
+        raise HTTPException(status_code=502, detail=str(e))
     return parsed
 
 

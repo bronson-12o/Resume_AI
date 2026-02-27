@@ -6,6 +6,7 @@ import Profile from './pages/Profile';
 import Tailor from './pages/Tailor';
 import Results from './pages/Results';
 import Tracker from './pages/Tracker';
+import ErrorBoundary from './components/ErrorBoundary';
 
 function App() {
   const [darkMode, setDarkMode] = useState(() => {
@@ -75,13 +76,15 @@ function App() {
 
         {/* Main Content */}
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/profile" element={<Profile />} />
-            <Route path="/tailor" element={<Tailor />} />
-            <Route path="/results/:resumeId" element={<Results />} />
-            <Route path="/tracker" element={<Tracker />} />
-          </Routes>
+          <ErrorBoundary>
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/profile" element={<Profile />} />
+              <Route path="/tailor" element={<Tailor />} />
+              <Route path="/results/:resumeId" element={<Results />} />
+              <Route path="/tracker" element={<Tracker />} />
+            </Routes>
+          </ErrorBoundary>
         </main>
       </div>
     </BrowserRouter>

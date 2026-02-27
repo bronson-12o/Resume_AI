@@ -1,13 +1,15 @@
 """Resume generation router."""
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 from backend.database.database import get_db
 from backend.database.models import User, TailoredResume
-from backend.routers.profile import serialize_full_profile
+from backend.routers.profile import serialize_full_profile, get_user_with_profile
 from backend.services.parser_service import parse_job_description
 from backend.services.scorer_service import calculate_match_score
 from backend.services.resume_builder import (
@@ -24,7 +26,7 @@ router = APIRouter(prefix="/api/resume", tags=["resume"])
 
 class ResumeGenerateRequest(BaseModel):
     user_id: int
-    job_description: str
+    job_description: str = Field(min_length=50, max_length=50000)
     parsed_job: Optional[dict] = None
     saved_job_id: Optional[int] = None
 
@@ -40,7 +42,7 @@ class SectionRegenerateRequest(BaseModel):
 @router.post("/generate")
 def generate_resume(data: ResumeGenerateRequest, db: Session = Depends(get_db)):
     """Generate a tailored resume from profile + job description."""
-    user = db.query(User).filter(User.id == data.user_id).first()
+    user = get_user_with_profile(db, data.user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -174,12 +176,13 @@ def download_resume(
         tailored.generated_resume_content, user_info, template
     )
 
-    filename = f"resume_{user.name.replace(' ', '_')}_{tailored.job_title_applied or 'tailored'}.docx"
+    raw_name = f"resume_{user.name}_{tailored.job_title_applied or 'tailored'}.docx"
+    filename = re.sub(r"[^\w\s\-.]", "", raw_name).replace(" ", "_")
 
     return StreamingResponse(
         docx_buffer,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -210,15 +213,17 @@ def get_resume(resume_id: int, template: str = Query(default="ats_classic"), db:
 
 
 @router.get("/history/{user_id}")
-def get_resume_history(user_id: int, db: Session = Depends(get_db)):
+def get_resume_history(
+    user_id: int,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
     """Get all tailored resumes for a user."""
-    resumes = (
-        db.query(TailoredResume)
-        .filter(TailoredResume.user_id == user_id)
-        .order_by(TailoredResume.created_at.desc())
-        .all()
-    )
-    return [
+    base = db.query(TailoredResume).filter(TailoredResume.user_id == user_id)
+    total = base.count()
+    resumes = base.order_by(TailoredResume.created_at.desc()).offset(skip).limit(limit).all()
+    items = [
         {
             "id": r.id,
             "job_title_applied": r.job_title_applied,
@@ -228,3 +233,4 @@ def get_resume_history(user_id: int, db: Session = Depends(get_db)):
         }
         for r in resumes
     ]
+    return {"items": items, "total": total, "skip": skip, "limit": limit}

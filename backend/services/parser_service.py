@@ -1,22 +1,33 @@
 """Job description parsing service."""
+import logging
 import re
 from collections import Counter
-from backend.services.ai_service import ai_service
-from backend.utils.templates import JOB_PARSER_SYSTEM_PROMPT
+
+from backend.services.ai_service import ai_service, AIServiceError
+
+logger = logging.getLogger(__name__)
 
 
 def parse_job_description(job_description_text: str) -> dict:
     """Parse a raw job description into structured data using AI."""
     try:
         result = ai_service.generate(
-            system_prompt=JOB_PARSER_SYSTEM_PROMPT,
+            system_prompt=_get_parser_prompt(),
             user_prompt=f"Parse the following job description:\n\n{job_description_text}",
             response_format="json",
         )
         return result
-    except Exception:
-        # Fallback to basic keyword extraction
+    except AIServiceError as e:
+        logger.warning(f"AI parsing failed, using fallback: {e}")
         return _fallback_parse(job_description_text)
+    except Exception as e:
+        logger.error(f"Unexpected error in parse_job_description: {type(e).__name__}: {e}")
+        return _fallback_parse(job_description_text)
+
+
+def _get_parser_prompt():
+    from backend.utils.templates import JOB_PARSER_SYSTEM_PROMPT
+    return JOB_PARSER_SYSTEM_PROMPT
 
 
 def _fallback_parse(text: str) -> dict:

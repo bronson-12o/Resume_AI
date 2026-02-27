@@ -39,7 +39,7 @@ class WorkExperience(Base):
     __tablename__ = "work_experiences"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     job_title = Column(String(255), nullable=False)
     company_name = Column(String(255), nullable=False)
     location = Column(String(255), nullable=True)
@@ -56,7 +56,7 @@ class Education(Base):
     __tablename__ = "education"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     degree = Column(String(255), nullable=False)
     institution = Column(String(255), nullable=False)
     graduation_date = Column(String(20), nullable=True)
@@ -70,7 +70,7 @@ class Skill(Base):
     __tablename__ = "skills"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     skill_name = Column(String(255), nullable=False)
     category = Column(String(50), nullable=False)  # programming, data, soft_skill, tool, framework
     proficiency_level = Column(String(20), default="intermediate")  # beginner, intermediate, advanced
@@ -82,7 +82,7 @@ class Project(Base):
     __tablename__ = "projects"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     project_name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     technologies_used = Column(JSON, default=list)
@@ -96,7 +96,7 @@ class Certification(Base):
     __tablename__ = "certifications"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     cert_name = Column(String(255), nullable=False)
     issuing_org = Column(String(255), nullable=True)
     date_obtained = Column(String(20), nullable=True)
@@ -110,7 +110,7 @@ class TailoredResume(Base):
     __tablename__ = "tailored_resumes"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     job_title_applied = Column(String(255), nullable=True)
     company_name = Column(String(255), nullable=True)
     job_description_text = Column(Text, nullable=True)
@@ -119,7 +119,7 @@ class TailoredResume(Base):
     matched_keywords = Column(JSON, default=list)
     missing_keywords = Column(JSON, default=list)
     recommendations = Column(JSON, nullable=True)
-    saved_job_id = Column(Integer, ForeignKey("saved_jobs.id"), nullable=True)
+    saved_job_id = Column(Integer, ForeignKey("saved_jobs.id"), nullable=True, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User", back_populates="tailored_resumes")
@@ -130,7 +130,7 @@ class SavedJob(Base):
     __tablename__ = "saved_jobs"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     job_title = Column(String(255), nullable=False)
     company_name = Column(String(255), nullable=True)
     job_url = Column(String(500), nullable=True)
@@ -156,9 +156,9 @@ class CoverLetter(Base):
     __tablename__ = "cover_letters"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    tailored_resume_id = Column(Integer, ForeignKey("tailored_resumes.id"), nullable=True)
-    saved_job_id = Column(Integer, ForeignKey("saved_jobs.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    tailored_resume_id = Column(Integer, ForeignKey("tailored_resumes.id"), nullable=True, index=True)
+    saved_job_id = Column(Integer, ForeignKey("saved_jobs.id"), nullable=True, index=True)
     job_title = Column(String(255), nullable=True)
     company_name = Column(String(255), nullable=True)
     content = Column(Text, nullable=True)

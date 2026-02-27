@@ -1,7 +1,11 @@
 """Match scoring service - compares user profile against parsed job description."""
+import logging
 import re
-from backend.services.ai_service import ai_service
+
+from backend.services.ai_service import ai_service, AIServiceError
 from backend.utils.templates import SCORER_SYSTEM_PROMPT
+
+logger = logging.getLogger(__name__)
 
 
 def calculate_match_score(profile_data: dict, parsed_job: dict) -> dict:
@@ -22,7 +26,11 @@ def calculate_match_score(profile_data: dict, parsed_job: dict) -> dict:
             response_format="json",
         )
         return result
-    except Exception:
+    except AIServiceError as e:
+        logger.warning(f"AI scoring failed, using fallback: {e}")
+        return _fallback_scoring(profile_data, parsed_job)
+    except Exception as e:
+        logger.error(f"Unexpected error in calculate_match_score: {type(e).__name__}: {e}")
         return _fallback_scoring(profile_data, parsed_job)
 
 
@@ -78,7 +86,6 @@ def _format_job_for_ai(parsed_job: dict) -> str:
 
 def _fallback_scoring(profile: dict, parsed_job: dict) -> dict:
     """Rule-based scoring fallback."""
-    # Collect all user skills
     user_skills = set()
     for skill in profile.get("skills", []):
         user_skills.add(skill["skill_name"].lower())
@@ -86,39 +93,32 @@ def _fallback_scoring(profile: dict, parsed_job: dict) -> dict:
         for s in exp.get("skills_used", []):
             user_skills.add(s.lower())
 
-    # Collect all user text for keyword matching
     all_text = _get_all_profile_text(profile).lower()
 
-    # Hard skills match (40%)
     required = [s.lower() for s in parsed_job.get("required_skills", [])]
     matched_hard = [s for s in required if s in user_skills or s in all_text]
     missing_hard = [s for s in required if s not in matched_hard]
     hard_score = (len(matched_hard) / max(len(required), 1)) * 100
 
-    # Experience match (25%)
     years_text = parsed_job.get("years_experience", "")
     years_required = 0
     if years_text:
         match = re.search(r"(\d+)", str(years_text))
         if match:
             years_required = int(match.group(1))
-    user_years = len(profile.get("experiences", [])) * 2  # rough estimate
+    user_years = len(profile.get("experiences", [])) * 2
     exp_score = min(100, (user_years / max(years_required, 1)) * 100)
     exp_notes = f"JD asks for {years_required} years, estimated {user_years} from profile"
 
-    # Preferred skills (15%)
     preferred = [s.lower() for s in parsed_job.get("preferred_skills", [])]
     matched_pref = [s for s in preferred if s in user_skills or s in all_text]
     missing_pref = [s for s in preferred if s not in matched_pref]
     pref_score = (len(matched_pref) / max(len(preferred), 1)) * 100
 
-    # Education (10%)
-    edu_req = parsed_job.get("education_requirements", "")
     has_education = len(profile.get("education", [])) > 0
     edu_score = 100 if has_education else 50
     edu_notes = "Has education on file" if has_education else "No education listed"
 
-    # Keyword density (10%)
     ats_keywords = [k.lower() for k in parsed_job.get("ats_keywords", [])]
     matched_kw = [k for k in ats_keywords if k in all_text]
     missing_kw = [k for k in ats_keywords if k not in matched_kw]
