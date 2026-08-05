@@ -1,10 +1,17 @@
 /**
  * API client helper functions for ResumeAI backend.
  */
-import toast from 'react-hot-toast';
-
-const API_BASE = '/api';
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
 const REQUEST_TIMEOUT = 30000; // 30 seconds
+const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
+
+function errorMessage(payload, fallback) {
+  if (typeof payload?.detail === 'string') return payload.detail;
+  if (Array.isArray(payload?.detail)) {
+    return payload.detail.map((item) => item.msg).filter(Boolean).join('; ') || fallback;
+  }
+  return fallback;
+}
 
 async function request(path, options = {}) {
   const url = `${API_BASE}${path}`;
@@ -19,12 +26,9 @@ async function request(path, options = {}) {
 
   try {
     const response = await fetch(url, config);
-    clearTimeout(timeoutId);
-
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Request failed' }));
-      const message = error.detail || `HTTP ${response.status}`;
-      toast.error(message);
+      const message = errorMessage(error, `Request failed (${response.status})`);
       throw new Error(message);
     }
 
@@ -33,18 +37,16 @@ async function request(path, options = {}) {
       return response.blob();
     }
 
+    if (response.status === 204) return null;
     return response.json();
   } catch (err) {
-    clearTimeout(timeoutId);
     if (err.name === 'AbortError') {
-      toast.error('Request timed out. Please try again.');
-      throw new Error('Request timed out');
+      throw new Error('The request timed out. Please try again.');
     }
-    // Don't double-toast if already handled above
-    if (!err.message?.startsWith('HTTP') && err.name !== 'AbortError') {
-      toast.error(err.message || 'Network error');
-    }
-    throw err;
+    if (err instanceof TypeError) throw new Error('Could not connect to ResumeAI. Check that the backend is running.');
+    throw err instanceof Error ? err : new Error('An unexpected request error occurred.');
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -145,17 +147,29 @@ export async function deleteCertification(userId, certId) {
 // --- Resume Import ---
 
 export async function importResume(file) {
+  if (!file) throw new Error('Choose a PDF or DOCX resume to import.');
+  if (file.size > MAX_UPLOAD_SIZE) throw new Error('Resume files must be 10 MB or smaller.');
+  if (!/\.(pdf|docx)$/i.test(file.name)) throw new Error('Only PDF and DOCX files are supported.');
+
   const formData = new FormData();
   formData.append('file', file);
   const url = `${API_BASE}/profile/import`;
-  const response = await fetch(url, { method: 'POST', body: formData });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Import failed' }));
-    const message = error.detail || `HTTP ${response.status}`;
-    toast.error(message);
-    throw new Error(message);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+  try {
+    const response = await fetch(url, { method: 'POST', body: formData, signal: controller.signal });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Import failed' }));
+      throw new Error(errorMessage(error, `Import failed (${response.status})`));
+    }
+    return response.json();
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error('Resume import timed out. Please try again.');
+    if (err instanceof TypeError) throw new Error('Could not connect to ResumeAI. Check that the backend is running.');
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
   }
-  return response.json();
 }
 
 export async function confirmImport(userId, data) {

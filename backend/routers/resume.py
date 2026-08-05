@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from typing import Optional
 
 from backend.database.database import get_db
-from backend.database.models import User, TailoredResume
+from backend.database.models import SavedJob, User, TailoredResume
 from backend.routers.profile import serialize_full_profile, get_user_with_profile
 from backend.services.parser_service import parse_job_description
 from backend.services.scorer_service import calculate_match_score
@@ -20,6 +20,7 @@ from backend.services.resume_builder import (
     regenerate_section,
 )
 from backend.services.recommender import get_skill_recommendations
+from backend.services.ai_service import AIServiceError
 
 router = APIRouter(prefix="/api/resume", tags=["resume"])
 
@@ -48,13 +49,24 @@ def generate_resume(data: ResumeGenerateRequest, db: Session = Depends(get_db)):
 
     profile = serialize_full_profile(user)
 
+    if data.saved_job_id is not None:
+        saved_job = db.query(SavedJob).filter(
+            SavedJob.id == data.saved_job_id,
+            SavedJob.user_id == data.user_id,
+        ).first()
+        if not saved_job:
+            raise HTTPException(status_code=400, detail="Saved job does not belong to this profile")
+
     # Parse job description if not provided
     parsed_job = data.parsed_job
     if not parsed_job:
         parsed_job = parse_job_description(data.job_description)
 
     # Generate tailored resume
-    resume_content = generate_tailored_resume(profile, data.job_description, parsed_job)
+    try:
+        resume_content = generate_tailored_resume(profile, data.job_description, parsed_job)
+    except AIServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     # Generate HTML preview
     user_info = profile["user"]
@@ -74,6 +86,7 @@ def generate_resume(data: ResumeGenerateRequest, db: Session = Depends(get_db)):
         job_description_text=data.job_description,
         generated_resume_content=resume_content,
         match_score=match_result.get("overall_score"),
+        match_details=match_result,
         matched_keywords=match_result.get("breakdown", {}).get("hard_skills", {}).get("matched", []),
         missing_keywords=match_result.get("breakdown", {}).get("hard_skills", {}).get("missing", []),
         recommendations=recommendations,
@@ -127,12 +140,15 @@ def regenerate_resume_section(resume_id: int, data: SectionRegenerateRequest, db
         raise HTTPException(status_code=404, detail="User not found")
 
     profile = serialize_full_profile(user)
-    new_section = regenerate_section(
-        section_name=data.section_name,
-        current_content=tailored.generated_resume_content or {},
-        job_description=tailored.job_description_text or "",
-        profile_data=profile,
-    )
+    try:
+        new_section = regenerate_section(
+            section_name=data.section_name,
+            current_content=tailored.generated_resume_content or {},
+            job_description=tailored.job_description_text or "",
+            profile_data=profile,
+        )
+    except AIServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     # Merge the regenerated section into existing content
     current = tailored.generated_resume_content or {}
@@ -202,7 +218,8 @@ def get_resume(resume_id: int, template: str = Query(default="ats_classic"), db:
         "user_id": tailored.user_id,
         "job_title_applied": tailored.job_title_applied,
         "company_name": tailored.company_name,
-        "match_score": tailored.match_score,
+        "match_score": tailored.match_details or tailored.match_score,
+        "job_description_text": tailored.job_description_text,
         "resume_content": tailored.generated_resume_content,
         "html_preview": html_preview,
         "matched_keywords": tailored.matched_keywords,

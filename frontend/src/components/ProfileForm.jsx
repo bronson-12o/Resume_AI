@@ -1,13 +1,18 @@
 /**
  * Reusable form field component for profile editing.
  */
+import { useId } from 'react';
+
 function ProfileForm({ label, value, onChange, type = 'text', required = false, placeholder = '' }) {
+  const inputId = useId();
+
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+      <label htmlFor={inputId} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
         {label}
       </label>
       <input
+        id={inputId}
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}

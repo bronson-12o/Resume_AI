@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from '../router';
 import toast from 'react-hot-toast';
 import ScoreGauge from '../components/ScoreGauge';
 import { listProfiles, generateResume, parseJobDescription, getQuickScore, saveJob } from '../api/client';
@@ -8,7 +8,6 @@ function Tailor() {
   const navigate = useNavigate();
   const [userId, setUserId] = useState(null);
   const [jobDescription, setJobDescription] = useState('');
-  const [loading, setLoading] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [parsedJob, setParsedJob] = useState(null);
   const [step, setStep] = useState(1); // 1: paste JD, 2: review parsed + quick score, 3: generating
@@ -16,12 +15,18 @@ function Tailor() {
   const [scoring, setScoring] = useState(false);
   const [savingToTracker, setSavingToTracker] = useState(false);
   const [savedJobId, setSavedJobId] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [profileError, setProfileError] = useState('');
 
   useEffect(() => {
     async function load() {
-      const profiles = await listProfiles();
-      if (profiles.length > 0) {
-        setUserId(profiles[0].id);
+      try {
+        const profiles = await listProfiles();
+        if (profiles.length > 0) setUserId(profiles[0].id);
+      } catch (err) {
+        setProfileError(err.message || 'Could not load your profile.');
+      } finally {
+        setProfileLoading(false);
       }
     }
     load();
@@ -76,7 +81,6 @@ function Tailor() {
 
   async function handleGenerate() {
     setStep(3);
-    setLoading(true);
     try {
       const result = await generateResume(userId, jobDescription, parsedJob, savedJobId);
       toast.success('Resume generated!');
@@ -84,9 +88,15 @@ function Tailor() {
     } catch (err) {
       toast.error(`Failed to generate: ${err.message}`);
       setStep(2);
-    } finally {
-      setLoading(false);
     }
+  }
+
+  if (profileLoading) {
+    return <div className="flex h-64 items-center justify-center" role="status"><div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-100 border-b-primary-600" /><span className="sr-only">Loading profile</span></div>;
+  }
+
+  if (profileError) {
+    return <div className="surface-card p-8 text-center" role="alert"><h1 className="text-xl font-bold">Couldn’t load your profile</h1><p className="mt-2 text-slate-600 dark:text-slate-300">{profileError}</p></div>;
   }
 
   if (!userId) {
@@ -96,9 +106,9 @@ function Tailor() {
         <p className="text-gray-600 dark:text-gray-400 mb-4">
           You need to create your master profile before tailoring a resume.
         </p>
-        <a href="/profile" className="inline-flex px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium">
+        <Link to="/profile" className="inline-flex px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium">
           Create Profile
-        </a>
+        </Link>
       </div>
     );
   }
@@ -110,13 +120,13 @@ function Tailor() {
       <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Tailor Your Resume</h1>
 
       {/* Step indicator */}
-      <div className="flex items-center gap-4">
+      <ol className="flex items-center gap-2 overflow-x-auto pb-1 sm:gap-4" aria-label="Tailoring progress">
         {[
           { num: 1, label: 'Paste JD' },
           { num: 2, label: 'Review & Score' },
           { num: 3, label: 'Generate' },
         ].map(({ num, label }) => (
-          <div key={num} className="flex items-center gap-2">
+          <li key={num} className="flex shrink-0 items-center gap-2" aria-current={step === num ? 'step' : undefined}>
             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
               step >= num ? 'bg-primary-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
             }`}>
@@ -127,25 +137,32 @@ function Tailor() {
               ) : num}
             </div>
             <span className={`text-sm font-medium ${step >= num ? 'text-gray-900 dark:text-white' : 'text-gray-400'}`}>{label}</span>
-            {num < 3 && <div className={`w-8 h-0.5 ${step > num ? 'bg-primary-600' : 'bg-gray-200 dark:bg-gray-700'}`} />}
-          </div>
+            {num < 3 && <div aria-hidden="true" className={`w-4 h-0.5 sm:w-8 ${step > num ? 'bg-primary-600' : 'bg-gray-200 dark:bg-gray-700'}`} />}
+          </li>
         ))}
-      </div>
+      </ol>
 
       {/* Step 1: Paste Job Description */}
       {step === 1 && (
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label htmlFor="job-description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Paste the full job description below
             </label>
             <textarea
+              id="job-description"
               className={inputClass}
               rows={15}
               value={jobDescription}
               onChange={e => setJobDescription(e.target.value)}
               placeholder="Copy and paste the complete job posting here..."
+              maxLength={50000}
+              aria-describedby="job-description-help"
             />
+            <div id="job-description-help" className="mt-2 flex justify-between gap-4 text-xs text-slate-500 dark:text-slate-400">
+              <span>Include responsibilities and requirements for a more useful score.</span>
+              <span>{jobDescription.length.toLocaleString()} / 50,000</span>
+            </div>
           </div>
           <button
             onClick={handleParse}
@@ -306,8 +323,8 @@ function Tailor() {
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">Generating Your Tailored Resume</h2>
           <p className="text-gray-600 dark:text-gray-400">
-            Our AI is analyzing your profile against the job description, optimizing for ATS compatibility,
-            and tailoring your experience to highlight the most relevant qualifications.
+            The configured AI provider is comparing your saved profile with the job description and drafting
+            an ATS-oriented resume from your existing qualifications.
           </p>
         </div>
       )}

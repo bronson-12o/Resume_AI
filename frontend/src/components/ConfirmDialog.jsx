@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-function ConfirmDialog({ open, title, message, onConfirm, onCancel, confirmLabel = 'Delete', danger = true }) {
+function ConfirmDialog({ open, title, message, onConfirm, onCancel, confirmLabel = 'Delete', danger = true, busy = false }) {
   const confirmRef = useRef(null);
 
   useEffect(() => {
@@ -28,11 +28,13 @@ function ConfirmDialog({ open, title, message, onConfirm, onCancel, confirmLabel
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-title"
+        aria-describedby="confirm-message"
+        aria-busy={busy}
       >
         <h3 id="confirm-title" className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
           {title}
         </h3>
-        <p className="text-gray-600 dark:text-gray-400 mb-6">{message}</p>
+        <p id="confirm-message" className="text-gray-600 dark:text-gray-400 mb-6">{message}</p>
         <div className="flex justify-end gap-3">
           <button
             onClick={onCancel}
@@ -43,10 +45,11 @@ function ConfirmDialog({ open, title, message, onConfirm, onCancel, confirmLabel
           <button
             ref={confirmRef}
             onClick={onConfirm}
+            disabled={busy}
             className={`px-4 py-2 text-white rounded-lg transition-colors ${
               danger
-                ? 'bg-red-600 hover:bg-red-700'
-                : 'bg-primary-600 hover:bg-primary-700'
+                ? 'bg-red-600 hover:bg-red-700 disabled:opacity-60'
+                : 'bg-primary-600 hover:bg-primary-700 disabled:opacity-60'
             }`}
           >
             {confirmLabel}

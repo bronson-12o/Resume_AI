@@ -4,8 +4,8 @@ import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.orm import Session, joinedload
-from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from typing import Literal, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -21,59 +21,63 @@ router = APIRouter(prefix="/api/profile", tags=["profile"])
 
 # --- Pydantic Schemas ---
 
-class UserCreate(BaseModel):
+class ProfileModel(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+
+class UserCreate(ProfileModel):
     name: str = Field(min_length=1, max_length=255)
     email: EmailStr
-    phone: Optional[str] = None
-    location: Optional[str] = None
-    linkedin_url: Optional[str] = None
-    portfolio_url: Optional[str] = None
-    professional_summary: Optional[str] = None
+    phone: Optional[str] = Field(default=None, max_length=50)
+    location: Optional[str] = Field(default=None, max_length=255)
+    linkedin_url: Optional[str] = Field(default=None, max_length=500)
+    portfolio_url: Optional[str] = Field(default=None, max_length=500)
+    professional_summary: Optional[str] = Field(default=None, max_length=5000)
 
-class UserUpdate(BaseModel):
-    name: Optional[str] = None
+class UserUpdate(ProfileModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
     email: Optional[EmailStr] = None
-    phone: Optional[str] = None
-    location: Optional[str] = None
-    linkedin_url: Optional[str] = None
-    portfolio_url: Optional[str] = None
-    professional_summary: Optional[str] = None
+    phone: Optional[str] = Field(default=None, max_length=50)
+    location: Optional[str] = Field(default=None, max_length=255)
+    linkedin_url: Optional[str] = Field(default=None, max_length=500)
+    portfolio_url: Optional[str] = Field(default=None, max_length=500)
+    professional_summary: Optional[str] = Field(default=None, max_length=5000)
 
-class ExperienceCreate(BaseModel):
-    job_title: str
-    company_name: str
-    location: Optional[str] = None
-    start_date: str
-    end_date: Optional[str] = None
-    bullet_points: list[str] = []
-    skills_used: list[str] = []
+class ExperienceCreate(ProfileModel):
+    job_title: str = Field(min_length=1, max_length=255)
+    company_name: str = Field(min_length=1, max_length=255)
+    location: Optional[str] = Field(default=None, max_length=255)
+    start_date: str = Field(min_length=1, max_length=20)
+    end_date: Optional[str] = Field(default=None, max_length=20)
+    bullet_points: list[str] = Field(default_factory=list, max_length=100)
+    skills_used: list[str] = Field(default_factory=list, max_length=100)
     is_current: bool = False
 
-class EducationCreate(BaseModel):
-    degree: str
-    institution: str
-    graduation_date: Optional[str] = None
-    gpa: Optional[str] = None
-    relevant_coursework: list[str] = []
+class EducationCreate(ProfileModel):
+    degree: str = Field(min_length=1, max_length=255)
+    institution: str = Field(min_length=1, max_length=255)
+    graduation_date: Optional[str] = Field(default=None, max_length=20)
+    gpa: Optional[str] = Field(default=None, max_length=10)
+    relevant_coursework: list[str] = Field(default_factory=list, max_length=100)
 
-class SkillCreate(BaseModel):
-    skill_name: str
-    category: str  # programming, data, soft_skill, tool, framework
-    proficiency_level: str = "intermediate"  # beginner, intermediate, advanced
+class SkillCreate(ProfileModel):
+    skill_name: str = Field(min_length=1, max_length=255)
+    category: Literal["programming", "data", "soft_skill", "tool", "framework"]
+    proficiency_level: Literal["beginner", "intermediate", "advanced"] = "intermediate"
 
-class ProjectCreate(BaseModel):
-    project_name: str
-    description: Optional[str] = None
-    technologies_used: list[str] = []
-    url: Optional[str] = None
-    bullet_points: list[str] = []
+class ProjectCreate(ProfileModel):
+    project_name: str = Field(min_length=1, max_length=255)
+    description: Optional[str] = Field(default=None, max_length=5000)
+    technologies_used: list[str] = Field(default_factory=list, max_length=100)
+    url: Optional[str] = Field(default=None, max_length=500)
+    bullet_points: list[str] = Field(default_factory=list, max_length=100)
 
-class CertificationCreate(BaseModel):
-    cert_name: str
-    issuing_org: Optional[str] = None
-    date_obtained: Optional[str] = None
-    expiry_date: Optional[str] = None
-    credential_url: Optional[str] = None
+class CertificationCreate(ProfileModel):
+    cert_name: str = Field(min_length=1, max_length=255)
+    issuing_org: Optional[str] = Field(default=None, max_length=255)
+    date_obtained: Optional[str] = Field(default=None, max_length=20)
+    expiry_date: Optional[str] = Field(default=None, max_length=20)
+    credential_url: Optional[str] = Field(default=None, max_length=500)
 
 
 # --- Helper to serialize profile ---
@@ -210,6 +214,13 @@ def update_profile(user_id: int, data: UserUpdate, db: Session = Depends(get_db)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     update_data = data.model_dump(exclude_unset=True)
+    if "email" in update_data:
+        existing = db.query(User).filter(
+            User.email == update_data["email"],
+            User.id != user_id,
+        ).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Email already registered")
     for key, value in update_data.items():
         setattr(user, key, value)
     db.commit()
@@ -429,19 +440,19 @@ def delete_certification(user_id: int, cert_id: int, db: Session = Depends(get_d
 
 # --- Resume Import ---
 
-class ImportConfirmData(BaseModel):
-    name: str
+class ImportConfirmData(ProfileModel):
+    name: str = Field(min_length=1, max_length=255)
     email: EmailStr
-    phone: Optional[str] = None
-    location: Optional[str] = None
-    linkedin_url: Optional[str] = None
-    portfolio_url: Optional[str] = None
-    professional_summary: Optional[str] = None
-    experiences: list[dict] = []
-    education: list[dict] = []
-    skills: list[dict] = []
-    projects: list[dict] = []
-    certifications: list[dict] = []
+    phone: Optional[str] = Field(default=None, max_length=50)
+    location: Optional[str] = Field(default=None, max_length=255)
+    linkedin_url: Optional[str] = Field(default=None, max_length=500)
+    portfolio_url: Optional[str] = Field(default=None, max_length=500)
+    professional_summary: Optional[str] = Field(default=None, max_length=5000)
+    experiences: list[ExperienceCreate] = Field(default_factory=list, max_length=100)
+    education: list[EducationCreate] = Field(default_factory=list, max_length=100)
+    skills: list[SkillCreate] = Field(default_factory=list, max_length=500)
+    projects: list[ProjectCreate] = Field(default_factory=list, max_length=100)
+    certifications: list[CertificationCreate] = Field(default_factory=list, max_length=100)
 
 
 @router.post("/import")
@@ -502,58 +513,27 @@ def confirm_import(user_id: int, data: ImportConfirmData, db: Session = Depends(
 
     # Add experiences
     for exp_data in data.experiences:
-        exp = WorkExperience(user_id=user_id, **{
-            "job_title": exp_data.get("job_title", ""),
-            "company_name": exp_data.get("company_name", ""),
-            "location": exp_data.get("location"),
-            "start_date": exp_data.get("start_date", ""),
-            "end_date": exp_data.get("end_date"),
-            "bullet_points": exp_data.get("bullet_points", []),
-            "skills_used": exp_data.get("skills_used", []),
-            "is_current": exp_data.get("is_current", False),
-        })
+        exp = WorkExperience(user_id=user_id, **exp_data.model_dump())
         db.add(exp)
 
     # Add education
     for edu_data in data.education:
-        edu = Education(user_id=user_id, **{
-            "degree": edu_data.get("degree", ""),
-            "institution": edu_data.get("institution", ""),
-            "graduation_date": edu_data.get("graduation_date"),
-            "gpa": edu_data.get("gpa"),
-            "relevant_coursework": edu_data.get("relevant_coursework", []),
-        })
+        edu = Education(user_id=user_id, **edu_data.model_dump())
         db.add(edu)
 
     # Add skills
     for skill_data in data.skills:
-        skill = Skill(user_id=user_id, **{
-            "skill_name": skill_data.get("skill_name", ""),
-            "category": skill_data.get("category", "programming"),
-            "proficiency_level": skill_data.get("proficiency_level", "intermediate"),
-        })
+        skill = Skill(user_id=user_id, **skill_data.model_dump())
         db.add(skill)
 
     # Add projects
     for proj_data in data.projects:
-        proj = Project(user_id=user_id, **{
-            "project_name": proj_data.get("project_name", ""),
-            "description": proj_data.get("description"),
-            "technologies_used": proj_data.get("technologies_used", []),
-            "url": proj_data.get("url"),
-            "bullet_points": proj_data.get("bullet_points", []),
-        })
+        proj = Project(user_id=user_id, **proj_data.model_dump())
         db.add(proj)
 
     # Add certifications
     for cert_data in data.certifications:
-        cert = Certification(user_id=user_id, **{
-            "cert_name": cert_data.get("cert_name", ""),
-            "issuing_org": cert_data.get("issuing_org"),
-            "date_obtained": cert_data.get("date_obtained"),
-            "expiry_date": cert_data.get("expiry_date"),
-            "credential_url": cert_data.get("credential_url"),
-        })
+        cert = Certification(user_id=user_id, **cert_data.model_dump())
         db.add(cert)
 
     db.commit()

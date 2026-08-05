@@ -1,14 +1,26 @@
 import logging
 import os
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./resume_ai.db")
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+engine_options = {"pool_pre_ping": True}
+if DATABASE_URL.startswith("sqlite"):
+    engine_options["connect_args"] = {"check_same_thread": False}
+
+engine = create_engine(DATABASE_URL, **engine_options)
+
+
+if DATABASE_URL.startswith("sqlite"):
+    @event.listens_for(engine, "connect")
+    def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
@@ -36,6 +48,10 @@ def _run_migrations():
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE tailored_resumes ADD COLUMN saved_job_id INTEGER"))
                 logger.info("Added saved_job_id column to tailored_resumes")
+        if "match_details" not in columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE tailored_resumes ADD COLUMN match_details JSON"))
+                logger.info("Added match_details column to tailored_resumes")
 
     # Create indexes on foreign keys for existing tables
     existing_indexes = set()

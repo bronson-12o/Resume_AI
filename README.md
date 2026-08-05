@@ -1,207 +1,193 @@
 # ResumeAI
 
-AI-powered resume tailoring tool that helps job seekers optimize their resumes for specific job postings. Built with a "master profile" approach — store everything you've done, then generate targeted, ATS-optimized resumes for each application without fabricating experience.
+ResumeAI is a local-first job-search workspace that turns one complete, truthful career profile into job-specific resumes and cover letters. It also explains profile-to-role fit and keeps applications organized in a lightweight tracker.
 
-## Features
+The product is designed for an individual job seeker. It is not a hosted multi-user service: there is currently no authentication or account isolation, so do not expose it directly to the public internet.
 
-- **Master Profile** — Store all your experience, skills, projects, education, and certifications in one place
-- **Job Description Parser** — Paste any JD and get structured extraction of requirements, skills, and ATS keywords
-- **Match Scoring** — See exactly how well your profile matches a job (hard skills, experience, education, keywords)
-- **AI Resume Generator** — Get a tailored, ATS-optimized resume using only your real experience
-- **DOCX Export** — Download clean, ATS-friendly Word documents
-- **Skill Gap Recommendations** — Actionable suggestions with curated learning resources
-- **Sector Explorer** — Discover alternative job titles and industries where your skills transfer
-- **Dark Mode** — Full dark mode support
+## What it does
 
-## Tech Stack
+- Maintains a master profile with experience, education, skills, projects, and certifications.
+- Imports text-based PDF and DOCX resumes into a review step before saving.
+- Parses job descriptions and provides match scores. These features have deterministic fallbacks when no AI key is configured.
+- Generates editable, job-specific resumes from saved experience without authorizing fabricated qualifications.
+- Preserves detailed score breakdowns with each resume and exports ATS-oriented DOCX files in three templates.
+- Generates and exports editable cover letters.
+- Tracks saved, applied, interviewing, offered, and rejected jobs.
+- Supports responsive light and dark interfaces.
 
-| Layer | Technology | Why |
-|-------|-----------|-----|
-| Backend | Python + FastAPI | High performance async API framework |
-| Frontend | React (Vite) + Tailwind CSS | Fast dev experience, clean utility-first styling |
-| AI | OpenAI / Anthropic (swappable) | Provider-agnostic abstraction layer |
-| Database | SQLite + SQLAlchemy | Zero-config, easy deployment |
-| Resume Export | python-docx | ATS-friendly .docx generation |
-| Deployment | Docker + docker-compose | Single-command deployment |
+## Product workflow
 
-## Project Structure
+1. Create a profile manually or review an imported resume.
+2. Paste a complete job description.
+3. Review the parsed requirements and match score.
+4. Optionally save the role to the tracker.
+5. Generate, edit, preview, and export a tailored resume.
+6. Create a cover letter and update the application status.
 
-```
-resume-ai/
-├── backend/
-│   ├── main.py                  # FastAPI app entry point
-│   ├── requirements.txt
-│   ├── .env.example
-│   ├── Dockerfile
-│   ├── database/
-│   │   ├── models.py            # SQLAlchemy models
-│   │   ├── database.py          # DB connection and session
-│   │   └── seed.py              # Sample data seeder
-│   ├── routers/
-│   │   ├── profile.py           # CRUD for master profile
-│   │   ├── jobs.py              # Job description parsing
-│   │   ├── resume.py            # Resume generation + download
-│   │   ├── scoring.py           # Match scoring
-│   │   └── recommendations.py   # Skill gaps + sector suggestions
-│   ├── services/
-│   │   ├── ai_service.py        # AI provider abstraction layer
-│   │   ├── parser_service.py    # Job description NLP parsing
-│   │   ├── scorer_service.py    # Match scoring logic
-│   │   ├── resume_builder.py    # Resume assembly + DOCX/HTML
-│   │   └── recommender.py       # Skill gap + sector logic
-│   ├── utils/
-│   │   ├── ats_keywords.py      # ATS keyword lists + resources
-│   │   └── templates.py         # Resume templates + AI prompts
-│   └── tests/
-│       └── test_api.py          # API tests with mocks
-├── frontend/
-│   ├── src/
-│   │   ├── App.jsx              # Root with routing + dark mode
-│   │   ├── pages/
-│   │   │   ├── Dashboard.jsx    # Overview + history
-│   │   │   ├── Profile.jsx      # Master profile management
-│   │   │   ├── Tailor.jsx       # Paste JD + generate resume
-│   │   │   └── Results.jsx      # Score, preview, download
-│   │   ├── components/
-│   │   │   ├── ProfileForm.jsx  # Reusable form field
-│   │   │   ├── SkillTag.jsx     # Removable skill chip
-│   │   │   ├── ScoreGauge.jsx   # Circular score display
-│   │   │   ├── ResumePreview.jsx # HTML resume preview
-│   │   │   └── GapCard.jsx      # Skill gap recommendation card
-│   │   └── api/
-│   │       └── client.js        # API helper functions
-│   ├── package.json
-│   ├── vite.config.js
-│   ├── Dockerfile
-│   └── nginx.conf
-├── docker-compose.yml
-└── README.md
+Job parsing and match scoring fall back to deterministic local logic when the selected AI provider is unavailable. Resume generation, section regeneration, resume import parsing, sector suggestions, and cover-letter generation require the selected provider key.
+
+## Architecture
+
+| Layer | Technology | Responsibility |
+| --- | --- | --- |
+| Web client | React 18, Vite 8, Tailwind CSS | Profile, tailoring, editing, scoring, export, and tracking workflows |
+| API | Python 3.12, FastAPI, Pydantic | HTTP contracts, validation, security headers, and orchestration |
+| Persistence | SQLAlchemy, SQLite | Local profiles, generated materials, and tracked jobs |
+| AI boundary | OpenAI or Anthropic | Provider-backed parsing and generation behind one service interface |
+| Documents | python-docx, PyPDF2 | DOCX export and text extraction |
+| Runtime | Nginx, Docker Compose | Same-origin web/API deployment and persistent database volume |
+
+The browser calls `/api` by default. In development, Vite proxies that path to FastAPI. In Docker, Nginx serves the client and proxies it to the backend container.
+
+## Repository layout
+
+```text
+backend/
+  database/       SQLAlchemy models, connection, and additive SQLite migrations
+  routers/        Profile, job, scoring, resume, cover-letter, and tracker APIs
+  services/       AI boundary, parsers, scoring, recommendations, and document builders
+  tests/          API and service regression tests
+frontend/
+  public/         Static application assets
+  src/api/        Browser API client
+  src/components/ Shared interface components
+  src/pages/      Route-level workflows
+  src/router.jsx  Small client-only history router
+.github/workflows/ci.yml
+docker-compose.yml
 ```
 
-## Setup — Local Development
+## Local development
 
 ### Prerequisites
 
-- Python 3.10+
-- Node.js 18+
-- An OpenAI or Anthropic API key
+- Python 3.10 or newer; Python 3.12 matches the container and CI runtime.
+- Node.js 20.19 or newer.
+- An OpenAI or Anthropic key for provider-backed generation.
 
 ### Backend
 
+From the repository root:
+
 ```bash
-cd backend
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Configure environment
-cp .env.example .env
-# Edit .env and add your API key
-
-# Run the server
-cd ..
-uvicorn backend.main:app --reload --port 8000
-
-# (Optional) Seed sample data
-python -m backend.database.seed
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r backend/requirements.txt
+cp backend/.env.example backend/.env
+python -m uvicorn backend.main:app --reload --port 8000
 ```
+
+The API is available at `http://localhost:8000`; interactive documentation is at `http://localhost:8000/docs`.
 
 ### Frontend
 
-```bash
-cd frontend
-
-# Install dependencies
-npm install
-
-# Start dev server (proxies API to localhost:8000)
-npm run dev
-```
-
-Visit `http://localhost:5173` in your browser.
-
-### Running Tests
+In another terminal:
 
 ```bash
-# From project root
-python -m pytest backend/tests/ -v
+npm --prefix frontend ci
+cp frontend/.env.example frontend/.env
+npm --prefix frontend run dev
 ```
 
-## Deployment
+Open `http://localhost:5173`.
 
-### Docker (Single Server)
+### Optional sample profile
+
+With the backend environment active:
 
 ```bash
-# Set your API key
-export OPENAI_API_KEY=sk-...
-
-# Build and run
-docker-compose up --build -d
+python -m backend.database.seed
 ```
 
-The app will be available at `http://localhost` (port 80).
+The seed uses fictional local data and does not contact an AI provider.
 
-### Separate Deployment
+## Environment variables
 
-**Backend** (Railway / Render / Fly.io):
-- Deploy the `backend/` directory
-- Set environment variables (API keys, DATABASE_URL)
-- Start command: `uvicorn backend.main:app --host 0.0.0.0 --port 8000`
+Backend variables are documented in `backend/.env.example`.
 
-**Frontend** (Vercel / Netlify):
-- Deploy the `frontend/` directory
-- Build command: `npm run build`
-- Output directory: `dist`
-- Set API proxy to your backend URL
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `AI_PROVIDER` | `openai` | `openai` or `anthropic` |
+| `OPENAI_API_KEY` | empty | Required when the OpenAI provider performs generation |
+| `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model identifier |
+| `ANTHROPIC_API_KEY` | empty | Required when the Anthropic provider performs generation |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Anthropic model identifier |
+| `DATABASE_URL` | `sqlite:///./resume_ai.db` | SQLAlchemy connection string |
+| `FRONTEND_URL` | `http://localhost:5173` | Allowed browser origin |
+| `ENVIRONMENT` | `development` | Enables production-only transport headers when set to `production` |
 
-## API Documentation
+The frontend accepts `VITE_API_BASE_URL`. Keep `/api` for the normal same-origin setup; use a full backend URL ending in `/api` only for a deliberate split deployment.
 
-Once the backend is running, visit `http://localhost:8000/docs` for the interactive Swagger UI.
+Never commit `.env` files, provider keys, databases, uploaded resumes, or generated application materials.
 
-### Key Endpoints
+## Validation
 
-| Method | Endpoint | Description |
-|--------|---------|-------------|
-| GET | `/api/health` | Health check |
-| POST | `/api/profile` | Create user profile |
-| GET | `/api/profile/{id}` | Get full profile |
-| POST | `/api/jobs/parse` | Parse job description |
-| POST | `/api/scoring/match` | Calculate match score |
-| POST | `/api/resume/generate` | Generate tailored resume |
-| GET | `/api/resume/{id}/download` | Download .docx |
-| POST | `/api/recommendations/skills` | Get skill gap recs |
-| POST | `/api/recommendations/sectors` | Explore sectors |
+Run the same core checks used by CI:
 
-## AI Provider Configuration
-
-The AI service is provider-agnostic. Set `AI_PROVIDER` in your `.env`:
-
-- `openai` (default) — Uses GPT-4o-mini
-- `anthropic` — Uses Claude Sonnet
-
-Switching providers is a one-variable change. The abstraction layer in `backend/services/ai_service.py` handles the rest.
-
-## Environment Variables
-
-```
-OPENAI_API_KEY=sk-...          # Required if using OpenAI
-ANTHROPIC_API_KEY=sk-ant-...   # Required if using Anthropic
-DATABASE_URL=sqlite:///./resume_ai.db
-FRONTEND_URL=http://localhost:5173
-AI_PROVIDER=openai             # openai or anthropic
-ENVIRONMENT=development
+```bash
+source .venv/bin/activate
+python -m compileall -q backend
+python -m pytest backend/tests -q
+npm --prefix frontend run check
+npm --prefix frontend audit --audit-level=high
+docker compose config --quiet
 ```
 
-## Future Roadmap
+`npm run check` runs ESLint, Vitest, and the production Vite build.
 
-- Cover letter generator using profile + JD
-- LinkedIn profile optimizer
-- Job tracking board (applications, statuses, follow-ups)
-- Bulk tailoring (multiple JDs at once)
-- Interview prep question generator
-- Browser extension for auto-pulling JDs
-- Multi-user authentication
+## Docker Compose
+
+```bash
+# Optional: export the key for the selected provider.
+export OPENAI_API_KEY="..."
+docker compose up --build
+```
+
+Open `http://localhost`. The SQLite database is stored in the named `db-data` volume at `/app/data/resume_ai.db`, so container recreation does not discard the workspace. The frontend waits for the backend health check before starting.
+
+To stop the services without deleting data:
+
+```bash
+docker compose down
+```
+
+Do not add `--volumes` unless you intentionally want to delete the local ResumeAI database.
+
+## API surfaces
+
+| Area | Representative endpoints |
+| --- | --- |
+| Health | `GET /api/health` |
+| Profile | `POST /api/profile`, `GET /api/profile/{id}` |
+| Import | `POST /api/profile/import`, `POST /api/profile/{id}/import/confirm` |
+| Job analysis | `POST /api/jobs/parse`, `POST /api/scoring/quick` |
+| Resumes | `POST /api/resume/generate`, `GET/PUT /api/resume/{id}`, `GET /api/resume/{id}/download` |
+| Cover letters | `POST /api/cover-letter/generate`, `GET/PUT /api/cover-letter/{id}` |
+| Tracker | `POST /api/tracker`, `GET /api/tracker/{user_id}`, `PUT/DELETE /api/tracker/{job_id}` |
+
+See `/docs` for request and response schemas.
+
+## Privacy and security model
+
+- Profiles, job descriptions, generated materials, and tracking notes are sensitive personal data stored in SQLite.
+- Uploaded PDF/DOCX bytes are processed in memory and are not retained as source files. Confirmed structured profile data is persisted.
+- When an AI provider is configured, relevant profile and job-description text is sent to that provider for the requested analysis or generation. Provider retention and training policies are outside this repository.
+- Upload type, signature, and size are validated; API inputs have bounded lengths and enumerated states.
+- The API and Nginx add baseline browser security headers. The production container persists its database outside the image.
+- Resource IDs are not authorization boundaries. Authentication must be added before any shared or public deployment.
+
+## Known limitations
+
+- One installation assumes one trusted user and selects the first saved profile in the client.
+- There is no authentication, authorization, password reset, or encrypted-at-rest storage.
+- Scanned/image-only PDFs require OCR before import.
+- AI availability, latency, cost, and output quality depend on the configured provider.
+- SQLite migrations are intentionally small and additive; a production-scale service needs a versioned migration tool and a managed database.
+- Generated resumes and cover letters remain user-reviewable drafts. The user is responsible for checking accuracy before applying.
+
+## Recommended next work
+
+1. Add authentication and server-side ownership enforcement before shared deployment.
+2. Add browser-level end-to-end coverage for import, tailoring, editing, export, and tracker transitions.
+3. Add versioned database migrations and encrypted backups.
+4. Add OCR as an explicit, privacy-reviewed import option.

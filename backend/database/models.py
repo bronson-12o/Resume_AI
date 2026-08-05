@@ -116,6 +116,7 @@ class TailoredResume(Base):
     job_description_text = Column(Text, nullable=True)
     generated_resume_content = Column(JSON, nullable=True)
     match_score = Column(Float, nullable=True)
+    match_details = Column(JSON, nullable=True)
     matched_keywords = Column(JSON, default=list)
     missing_keywords = Column(JSON, default=list)
     recommendations = Column(JSON, nullable=True)

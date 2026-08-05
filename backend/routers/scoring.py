@@ -1,7 +1,7 @@
 """Match scoring router."""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.database.database import get_db
 from backend.database.models import User
@@ -19,7 +19,7 @@ class MatchRequest(BaseModel):
 
 class QuickScoreRequest(BaseModel):
     user_id: int
-    job_description: str
+    job_description: str = Field(min_length=1, max_length=50000)
 
 
 @router.post("/match")

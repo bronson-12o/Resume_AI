@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from '../router';
 import toast from 'react-hot-toast';
 import JobCard from '../components/JobCard';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { listProfiles, listSavedJobs, updateSavedJob, deleteSavedJob, getJobStats } from '../api/client';
 
 const COLUMNS = [
@@ -19,6 +20,9 @@ function Tracker() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedJob, setSelectedJob] = useState(null);
+  const [loadError, setLoadError] = useState('');
+  const [pendingDeleteJob, setPendingDeleteJob] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -34,7 +38,7 @@ function Tracker() {
           setStats(statsData);
         }
       } catch (err) {
-        console.error(err);
+        setLoadError(err.message || 'Could not load the job tracker.');
       } finally {
         setLoading(false);
       }
@@ -57,22 +61,30 @@ function Tracker() {
       }
       toast.success(`Status updated to ${newStatus}`);
     } catch (err) {
-      toast.error('Failed to update status');
+      toast.error(`Failed to update status: ${err.message}`);
     }
   }
 
-  async function handleDelete(jobId) {
-    if (!confirm('Delete this saved job?')) return;
+  function handleDelete(jobId) {
+    setPendingDeleteJob(jobId);
+  }
+
+  async function confirmDeleteJob() {
+    if (!pendingDeleteJob) return;
+    setDeleting(true);
     try {
-      await deleteSavedJob(jobId);
-      setJobs(prev => prev.filter(j => j.id !== jobId));
+      await deleteSavedJob(pendingDeleteJob);
+      setJobs(prev => prev.filter(j => j.id !== pendingDeleteJob));
       if (userId) {
         const newStats = await getJobStats(userId);
         setStats(newStats);
       }
       toast.success('Job deleted');
+      setPendingDeleteJob(null);
     } catch (err) {
-      toast.error('Failed to delete job');
+      toast.error(`Failed to delete job: ${err.message}`);
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -84,12 +96,16 @@ function Tracker() {
     );
   }
 
+  if (loadError) {
+    return <div className="surface-card p-8 text-center" role="alert"><h1 className="text-xl font-bold">Couldn’t load the job tracker</h1><p className="mt-2 text-slate-600 dark:text-slate-300">{loadError}</p></div>;
+  }
+
   if (!userId) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8 text-center">
         <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">No Profile Found</h2>
         <p className="text-gray-600 dark:text-gray-400 mb-4">Create your profile first to start tracking jobs.</p>
-        <a href="/profile" className="inline-flex px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium">Create Profile</a>
+        <Link to="/profile" className="inline-flex px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium">Create Profile</Link>
       </div>
     );
   }
@@ -102,6 +118,7 @@ function Tracker() {
   });
 
   return (
+    <>
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Job Tracker</h1>
@@ -115,7 +132,7 @@ function Tracker() {
 
       {/* Funnel stats */}
       {stats && (
-        <div className="grid grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {COLUMNS.map(col => (
             <div key={col.key} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-3 text-center">
               <div className={`w-2 h-2 rounded-full ${col.color} mx-auto mb-1`}></div>
@@ -158,13 +175,13 @@ function Tracker() {
       {/* Detail modal */}
       {selectedJob && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setSelectedJob(null)}>
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="job-detail-title">
             <div className="flex justify-between items-start mb-4">
               <div>
-                <h2 className="text-xl font-bold text-gray-900 dark:text-white">{selectedJob.job_title}</h2>
+                <h2 id="job-detail-title" className="text-xl font-bold text-gray-900 dark:text-white">{selectedJob.job_title}</h2>
                 <p className="text-gray-600 dark:text-gray-400">{selectedJob.company_name}</p>
               </div>
-              <button onClick={() => setSelectedJob(null)} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+              <button onClick={() => setSelectedJob(null)} className="text-gray-400 hover:text-gray-600 text-xl" aria-label="Close job details">&times;</button>
             </div>
 
             {selectedJob.quick_score != null && (
@@ -233,6 +250,16 @@ function Tracker() {
         </div>
       )}
     </div>
+    <ConfirmDialog
+      open={Boolean(pendingDeleteJob)}
+      title="Delete saved job?"
+      message="This removes the job from your tracker. Associated resumes and cover letters are kept."
+      onConfirm={confirmDeleteJob}
+      onCancel={() => setPendingDeleteJob(null)}
+      confirmLabel={deleting ? 'Deleting…' : 'Delete'}
+      busy={deleting}
+    />
+    </>
   );
 }
 

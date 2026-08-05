@@ -5,7 +5,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Literal, Optional
 
 logger = logging.getLogger(__name__)
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 from fastapi import Query
 
 from backend.database.database import get_db
-from backend.database.models import User, CoverLetter, TailoredResume
+from backend.database.models import User, CoverLetter, SavedJob, TailoredResume
 from backend.routers.profile import serialize_full_profile, get_user_with_profile
 from backend.services.parser_service import parse_job_description
 from backend.services.cover_letter_builder import generate_cover_letter, generate_cover_letter_docx
@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api/cover-letter", tags=["cover-letter"])
 
 class CoverLetterGenerateRequest(BaseModel):
     user_id: int
-    job_description: str
+    job_description: str = Field(min_length=20, max_length=50000)
     parsed_job: Optional[dict] = None
     tailored_resume_id: Optional[int] = None
     saved_job_id: Optional[int] = None
@@ -31,7 +31,7 @@ class CoverLetterGenerateRequest(BaseModel):
 
 
 class CoverLetterUpdateRequest(BaseModel):
-    content: str
+    content: str = Field(min_length=1, max_length=50000)
 
 
 @router.post("/generate")
@@ -41,13 +41,32 @@ def generate(data: CoverLetterGenerateRequest, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    if data.tailored_resume_id is not None:
+        tailored_resume = db.query(TailoredResume).filter(
+            TailoredResume.id == data.tailored_resume_id,
+            TailoredResume.user_id == data.user_id,
+        ).first()
+        if not tailored_resume:
+            raise HTTPException(status_code=400, detail="Resume does not belong to this profile")
+
+    if data.saved_job_id is not None:
+        saved_job = db.query(SavedJob).filter(
+            SavedJob.id == data.saved_job_id,
+            SavedJob.user_id == data.user_id,
+        ).first()
+        if not saved_job:
+            raise HTTPException(status_code=400, detail="Saved job does not belong to this profile")
+
     profile = serialize_full_profile(user)
 
     parsed_job = data.parsed_job
     if not parsed_job:
         parsed_job = parse_job_description(data.job_description)
 
-    content = generate_cover_letter(profile, data.job_description, parsed_job, data.tone)
+    try:
+        content = generate_cover_letter(profile, data.job_description, parsed_job, data.tone)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     cl = CoverLetter(
         user_id=data.user_id,

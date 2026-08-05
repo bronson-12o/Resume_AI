@@ -8,7 +8,7 @@ router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 
 class JobDescriptionInput(BaseModel):
-    job_description: str = Field(min_length=1)
+    job_description: str = Field(min_length=1, max_length=50000)
 
 
 @router.post("/parse")

@@ -12,8 +12,8 @@ function ScoreGauge({ score, size = 100 }) {
   else if (normalizedScore >= 50) color = 'text-yellow-500';
 
   return (
-    <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
-      <svg className="transform -rotate-90" width={size} height={size}>
+    <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }} role="img" aria-label={`${Math.round(normalizedScore)}% match score`}>
+      <svg aria-hidden="true" className="transform -rotate-90" width={size} height={size}>
         {/* Background circle */}
         <circle
           cx={size / 2}
@@ -43,7 +43,7 @@ function ScoreGauge({ score, size = 100 }) {
       </svg>
       <div className="absolute inset-0 flex items-center justify-center">
         <span className={`text-2xl font-bold ${color}`}>
-          {Math.round(normalizedScore)}
+          {Math.round(normalizedScore)}<span className="text-sm">%</span>
         </span>
       </div>
     </div>

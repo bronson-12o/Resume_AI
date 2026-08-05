@@ -75,8 +75,14 @@ class AIService:
     ) -> dict:
         from openai import OpenAI
 
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise AIServiceError(
+                "OpenAI is not configured. Set OPENAI_API_KEY or choose another AI provider."
+            )
+
         client = OpenAI(
-            api_key=os.getenv("OPENAI_API_KEY"),
+            api_key=api_key,
             timeout=REQUEST_TIMEOUT,
         )
 
@@ -103,8 +109,14 @@ class AIService:
     ) -> dict:
         from anthropic import Anthropic
 
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise AIServiceError(
+                "Anthropic is not configured. Set ANTHROPIC_API_KEY or choose another AI provider."
+            )
+
         client = Anthropic(
-            api_key=os.getenv("ANTHROPIC_API_KEY"),
+            api_key=api_key,
             timeout=REQUEST_TIMEOUT,
         )
 

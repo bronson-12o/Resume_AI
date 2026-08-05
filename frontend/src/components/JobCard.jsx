@@ -46,6 +46,7 @@ function JobCard({ job, onStatusChange, onDelete, onViewDetails }) {
         <select
           value={job.status}
           onChange={e => onStatusChange(job.id, e.target.value)}
+          aria-label={`Status for ${job.job_title}`}
           className="text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300"
         >
           <option value="saved">Saved</option>
@@ -56,12 +57,14 @@ function JobCard({ job, onStatusChange, onDelete, onViewDetails }) {
         </select>
         <button
           onClick={() => onViewDetails(job)}
+          aria-label={`View details for ${job.job_title}`}
           className="text-xs px-2 py-1 text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded"
         >
           Details
         </button>
         <button
           onClick={() => onDelete(job.id)}
+          aria-label={`Delete ${job.job_title}`}
           className="text-xs px-2 py-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded ml-auto"
         >
           Delete

@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 import ProfileForm from '../components/ProfileForm';
 import SkillTag from '../components/SkillTag';
 import ImportReview from '../components/ImportReview';
+import ConfirmDialog from '../components/ConfirmDialog';
 import {
   listProfiles, createProfile, updateProfile, getProfile,
   addExperience, updateExperience, deleteExperience,
@@ -50,6 +51,8 @@ function Profile() {
   const [importMode, setImportMode] = useState(false);
   const [importData, setImportData] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [pendingDelete, setPendingDelete] = useState(null);
 
   async function handleFileUpload(e) {
     const file = e.target.files?.[0];
@@ -91,6 +94,7 @@ function Profile() {
   useEffect(() => { loadProfile(); }, []);
 
   async function loadProfile() {
+    setLoadError('');
     try {
       const profiles = await listProfiles();
       if (profiles.length > 0) {
@@ -108,7 +112,7 @@ function Profile() {
         });
       }
     } catch (err) {
-      console.error(err);
+      setLoadError(err.message || 'Could not load your profile.');
     } finally {
       setLoading(false);
     }
@@ -174,11 +178,8 @@ function Profile() {
     setEditingExpId(null);
   }
 
-  async function handleDeleteExp(expId) {
-    if (!confirm('Delete this experience?')) return;
-    await deleteExperience(userId, expId);
-    toast.success('Experience deleted');
-    reload();
+  function handleDeleteExp(expId) {
+    setPendingDelete({ type: 'experience', id: expId, label: 'experience' });
   }
 
   function editExp(exp) {
@@ -218,11 +219,8 @@ function Profile() {
     }
   }
 
-  async function handleDeleteEdu(eduId) {
-    if (!confirm('Delete this education?')) return;
-    await deleteEducation(userId, eduId);
-    toast.success('Education deleted');
-    reload();
+  function handleDeleteEdu(eduId) {
+    setPendingDelete({ type: 'education', id: eduId, label: 'education entry' });
   }
 
   function editEdu(edu) {
@@ -253,10 +251,8 @@ function Profile() {
     }
   }
 
-  async function handleDeleteSkill(skillId) {
-    await deleteSkill(userId, skillId);
-    toast.success('Skill removed');
-    reload();
+  function handleDeleteSkill(skillId) {
+    setPendingDelete({ type: 'skill', id: skillId, label: 'skill' });
   }
 
   // --- Projects ---
@@ -286,11 +282,8 @@ function Profile() {
     }
   }
 
-  async function handleDeleteProj(projId) {
-    if (!confirm('Delete this project?')) return;
-    await deleteProject(userId, projId);
-    toast.success('Project deleted');
-    reload();
+  function handleDeleteProj(projId) {
+    setPendingDelete({ type: 'project', id: projId, label: 'project' });
   }
 
   function editProj(proj) {
@@ -326,11 +319,30 @@ function Profile() {
     }
   }
 
-  async function handleDeleteCert(certId) {
-    if (!confirm('Delete this certification?')) return;
-    await deleteCertification(userId, certId);
-    toast.success('Certification deleted');
-    reload();
+  function handleDeleteCert(certId) {
+    setPendingDelete({ type: 'certification', id: certId, label: 'certification' });
+  }
+
+  async function confirmDelete() {
+    if (!pendingDelete) return;
+    setSaving(true);
+    try {
+      const actions = {
+        experience: deleteExperience,
+        education: deleteEducation,
+        skill: deleteSkill,
+        project: deleteProject,
+        certification: deleteCertification,
+      };
+      await actions[pendingDelete.type](userId, pendingDelete.id);
+      toast.success(`${pendingDelete.label[0].toUpperCase()}${pendingDelete.label.slice(1)} deleted`);
+      setPendingDelete(null);
+      await reload();
+    } catch (err) {
+      toast.error(`Delete failed: ${err.message}`);
+    } finally {
+      setSaving(false);
+    }
   }
 
   function editCert(cert) {
@@ -372,6 +384,16 @@ function Profile() {
     );
   }
 
+  if (loadError) {
+    return (
+      <div className="surface-card p-8 text-center" role="alert">
+        <h1 className="text-xl font-bold">Couldn’t load your profile</h1>
+        <p className="mt-2 text-slate-600 dark:text-slate-300">{loadError}</p>
+        <button className="button-primary mt-5" onClick={loadProfile}>Try again</button>
+      </div>
+    );
+  }
+
   const inputClass = "w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm";
   const labelClass = "block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1";
   const btnPrimary = "px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 transition-colors text-sm font-medium";
@@ -393,6 +415,7 @@ function Profile() {
   }
 
   return (
+    <>
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Master Profile</h1>
@@ -406,11 +429,14 @@ function Profile() {
       </div>
 
       {/* Tabs */}
-      <div className="flex flex-wrap gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+      <div className="flex flex-wrap gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1" role="tablist" aria-label="Profile sections">
         {TABS.map((tab, i) => (
           <button
             key={tab}
             onClick={() => setActiveTab(i)}
+            role="tab"
+            aria-selected={activeTab === i}
+            aria-controls={`profile-panel-${i}`}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
               activeTab === i
                 ? 'bg-white dark:bg-gray-700 text-primary-600 dark:text-primary-400 shadow-sm'
@@ -422,7 +448,7 @@ function Profile() {
         ))}
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+      <div id={`profile-panel-${activeTab}`} className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6" role="tabpanel">
         {/* TAB 0: Personal Info */}
         {activeTab === 0 && (
           <form onSubmit={handleSaveUser} className="space-y-4">
@@ -435,8 +461,9 @@ function Profile() {
               <ProfileForm label="Portfolio URL" value={userForm.portfolio_url} onChange={v => setUserForm(p => ({ ...p, portfolio_url: v }))} />
             </div>
             <div>
-              <label className={labelClass}>Professional Summary</label>
+              <label htmlFor="professional-summary" className={labelClass}>Professional Summary</label>
               <textarea
+                id="professional-summary"
                 className={inputClass}
                 rows={4}
                 value={userForm.professional_summary}
@@ -737,6 +764,16 @@ function Profile() {
         )}
       </div>
     </div>
+    <ConfirmDialog
+      open={Boolean(pendingDelete)}
+      title={`Delete ${pendingDelete?.label || 'item'}?`}
+      message="This removes the item from your saved profile and cannot be undone."
+      onConfirm={confirmDelete}
+      onCancel={() => setPendingDelete(null)}
+      confirmLabel={saving ? 'Deleting…' : 'Delete'}
+      busy={saving}
+    />
+    </>
   );
 }
 

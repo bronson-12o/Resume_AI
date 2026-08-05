@@ -4,7 +4,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Literal, Optional
 
 logger = logging.getLogger(__name__)
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 from sqlalchemy.orm import joinedload
 
 from backend.database.database import get_db
-from backend.database.models import User, SavedJob
+from backend.database.models import CoverLetter, SavedJob, TailoredResume, User
 from backend.routers.profile import serialize_full_profile, get_user_with_profile
 from backend.services.parser_service import parse_job_description
 from backend.services.scorer_service import calculate_match_score
@@ -21,21 +21,25 @@ router = APIRouter(prefix="/api/tracker", tags=["tracker"])
 
 
 class SaveJobRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     user_id: int
-    job_title: str
-    company_name: Optional[str] = None
-    job_url: Optional[str] = None
-    job_description_text: Optional[str] = None
-    notes: Optional[str] = None
+    job_title: str = Field(min_length=1, max_length=255)
+    company_name: Optional[str] = Field(default=None, max_length=255)
+    job_url: Optional[str] = Field(default=None, max_length=2000)
+    job_description_text: Optional[str] = Field(default=None, max_length=50000)
+    notes: Optional[str] = Field(default=None, max_length=10000)
 
 
 class UpdateJobRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     status: Optional[Literal["saved", "applied", "interviewing", "offered", "rejected"]] = None
-    notes: Optional[str] = None
-    job_title: Optional[str] = None
-    company_name: Optional[str] = None
-    job_url: Optional[str] = None
-    applied_date: Optional[str] = None
+    notes: Optional[str] = Field(default=None, max_length=10000)
+    job_title: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    company_name: Optional[str] = Field(default=None, max_length=255)
+    job_url: Optional[str] = Field(default=None, max_length=2000)
+    applied_date: Optional[str] = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
 
 
 def _serialize_job(job: SavedJob) -> dict:
@@ -74,8 +78,8 @@ def save_job(data: SaveJobRequest, db: Session = Depends(get_db)):
             profile = serialize_full_profile(user)
             score_result = calculate_match_score(profile, parsed_job)
             quick_score = score_result.get("overall_score")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Could not enrich saved job with parsing and scoring: %s", type(exc).__name__)
 
     job = SavedJob(
         user_id=data.user_id,
@@ -153,6 +157,12 @@ def delete_saved_job(job_id: int, db: Session = Depends(get_db)):
     job = db.query(SavedJob).filter(SavedJob.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    db.query(TailoredResume).filter(TailoredResume.saved_job_id == job_id).update(
+        {TailoredResume.saved_job_id: None}, synchronize_session=False
+    )
+    db.query(CoverLetter).filter(CoverLetter.saved_job_id == job_id).update(
+        {CoverLetter.saved_job_id: None}, synchronize_session=False
+    )
     db.delete(job)
     db.commit()
     return {"message": "Job deleted"}

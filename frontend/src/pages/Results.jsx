@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams } from '../router';
 import toast from 'react-hot-toast';
 import ScoreGauge from '../components/ScoreGauge';
 import ResumePreview from '../components/ResumePreview';
@@ -28,37 +28,27 @@ function Results() {
   const [coverLetterTone, setCoverLetterTone] = useState('formal');
 
   useEffect(() => {
+    let cancelled = false;
     async function load() {
       try {
         const data = await getResume(resumeId, template);
-        setResume(data);
+        if (!cancelled) setResume(data);
       } catch (err) {
-        toast.error('Failed to load resume');
+        if (!cancelled) toast.error(`Failed to load resume: ${err.message}`);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     load();
-  }, [resumeId]);
-
-  // Reload HTML when template changes
-  useEffect(() => {
-    if (!resume) return;
-    async function reload() {
-      try {
-        const data = await getResume(resumeId, template);
-        setResume(prev => ({ ...prev, html_preview: data.html_preview }));
-      } catch {}
-    }
-    reload();
-  }, [template]);
+    return () => { cancelled = true; };
+  }, [resumeId, template]);
 
   async function handleDownload() {
     try {
       await downloadResume(resumeId, template);
       toast.success('Download started');
     } catch (err) {
-      toast.error('Download failed');
+      toast.error(`Download failed: ${err.message}`);
     }
   }
 
@@ -69,7 +59,7 @@ function Results() {
       setResume(prev => ({ ...prev, resume_content: result.resume_content, html_preview: result.html_preview }));
       toast.success('Changes saved');
     } catch (err) {
-      toast.error('Failed to save');
+      toast.error(`Failed to save: ${err.message}`);
     } finally {
       setSaving(false);
     }
@@ -82,7 +72,7 @@ function Results() {
       setResume(prev => ({ ...prev, resume_content: result.resume_content, html_preview: result.html_preview }));
       toast.success(`${sectionName.replace('_', ' ')} regenerated`);
     } catch (err) {
-      toast.error('Failed to regenerate section');
+      toast.error(`Failed to regenerate section: ${err.message}`);
     } finally {
       setRegenerating(false);
     }
@@ -98,7 +88,7 @@ function Results() {
         setSectors(result);
       }
     } catch (err) {
-      toast.error('Failed to load sector suggestions');
+      toast.error(`Failed to load sector suggestions: ${err.message}`);
     } finally {
       setLoadingSectors(false);
     }
@@ -130,7 +120,7 @@ function Results() {
       await downloadCoverLetter(coverLetter.id);
       toast.success('Download started');
     } catch (err) {
-      toast.error('Download failed');
+      toast.error(`Download failed: ${err.message}`);
     }
   }
 

@@ -3,7 +3,7 @@ import pytest
 from unittest.mock import patch
 
 
-def _create_resume(client, user_id):
+def _create_resume(client, user_id, saved_job_id=None):
     """Helper: generate a resume and return its ID."""
     with patch("backend.routers.resume.parse_job_description") as mock_parse, \
          patch("backend.routers.resume.generate_tailored_resume") as mock_gen, \
@@ -38,10 +38,13 @@ def _create_resume(client, user_id):
 
         # The job description must be at least 50 chars due to validation
         jd = "Looking for a Python developer with experience in building REST APIs and web applications at our company"
-        response = client.post("/api/resume/generate", json={
+        payload = {
             "user_id": user_id,
             "job_description": jd,
-        })
+        }
+        if saved_job_id is not None:
+            payload["saved_job_id"] = saved_job_id
+        response = client.post("/api/resume/generate", json=payload)
         assert response.status_code == 200
         return response.json()["resume_id"]
 
@@ -88,6 +91,9 @@ def test_get_resume(client, sample_user_with_profile):
     assert data["id"] == resume_id
     assert "html_preview" in data
     assert "resume_content" in data
+    assert data["job_description_text"].startswith("Looking for a Python developer")
+    assert data["match_score"]["overall_score"] == 75
+    assert data["match_score"]["breakdown"]["hard_skills"]["matched"] == ["Python"]
 
 
 def test_download_resume(client, sample_user_with_profile):
@@ -116,3 +122,18 @@ def test_resume_history(client, sample_user_with_profile):
     data = response.json()
     assert data["total"] == 2
     assert len(data["items"]) == 2
+
+
+def test_resume_is_preserved_when_linked_job_is_deleted(client, sample_user_with_profile):
+    user_id = sample_user_with_profile["id"]
+    job = client.post("/api/tracker", json={
+        "user_id": user_id,
+        "job_title": "Developer",
+    }).json()
+    resume_id = _create_resume(client, user_id, saved_job_id=job["id"])
+
+    delete_response = client.delete(f"/api/tracker/{job['id']}")
+    resume_response = client.get(f"/api/resume/{resume_id}")
+
+    assert delete_response.status_code == 200
+    assert resume_response.status_code == 200

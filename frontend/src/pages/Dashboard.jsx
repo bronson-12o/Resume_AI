@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from '../router';
 import { listProfiles, getResumeHistory, getJobStats } from '../api/client';
 
 function Dashboard() {
@@ -7,9 +7,13 @@ function Dashboard() {
   const [history, setHistory] = useState([]);
   const [jobStats, setJobStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     async function load() {
+      setError('');
+      setLoading(true);
       try {
         const profileList = await listProfiles();
         setProfiles(profileList);
@@ -22,32 +26,44 @@ function Dashboard() {
           setJobStats(stats);
         }
       } catch (err) {
-        console.error('Failed to load dashboard:', err);
+        setError(err.message || 'The dashboard could not connect to ResumeAI.');
       } finally {
         setLoading(false);
       }
     }
     load();
-  }, []);
+  }, [reloadKey]);
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+      <div className="flex h-64 items-center justify-center" role="status">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-100 border-b-primary-600"></div>
+        <span className="sr-only">Loading dashboard</span>
       </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <section className="surface-card p-8 text-center" role="alert">
+        <p className="eyebrow">Connection problem</p>
+        <h1 className="mt-2 text-2xl font-bold text-slate-950 dark:text-white">We couldn’t load your workspace</h1>
+        <p className="mx-auto mt-2 max-w-lg text-slate-600 dark:text-slate-300">{error} Check that the backend is running, then try again.</p>
+        <button className="button-primary mt-6" onClick={() => setReloadKey((key) => key + 1)}>Try again</button>
+      </section>
     );
   }
 
   return (
     <div className="space-y-8">
       {/* Hero Section */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-3">
-          Welcome to ResumeAI
+      <div className="surface-card overflow-hidden p-6 sm:p-8 lg:p-10">
+        <p className="eyebrow">Truthful tailoring, from profile to application</p>
+        <h1 className="mt-3 max-w-3xl text-3xl font-bold tracking-tight text-slate-950 dark:text-white sm:text-4xl">
+          Build a stronger application from the experience you already have.
         </h1>
-        <p className="text-lg text-gray-600 dark:text-gray-300 mb-6 max-w-2xl">
-          Optimize your resume for any job posting. Build your master profile, paste a job description,
-          and get a tailored, ATS-optimized resume with match scoring and improvement recommendations.
+        <p className="mb-7 mt-4 max-w-2xl text-base leading-7 text-slate-600 dark:text-slate-300 sm:text-lg">
+          Keep one complete career profile, compare it with a role, and create focused materials without inventing qualifications. Your data stays in this installation.
         </p>
 
         {/* How it works */}
@@ -61,18 +77,18 @@ function Dashboard() {
           <div className="bg-primary-50 dark:bg-primary-900/20 rounded-lg p-4">
             <div className="text-primary-600 dark:text-primary-400 font-bold text-lg mb-1">2. Paste Job Description</div>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              Paste the job posting you want to apply for. Our AI parses and analyzes it.
+              Paste the job posting you want to apply for. ResumeAI extracts its requirements and keywords.
             </p>
           </div>
           <div className="bg-primary-50 dark:bg-primary-900/20 rounded-lg p-4">
             <div className="text-primary-600 dark:text-primary-400 font-bold text-lg mb-1">3. Get Tailored Resume</div>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              Receive an ATS-optimized resume, match score, and skill gap recommendations.
+              Receive an ATS-oriented resume draft, match score, and skill gap recommendations.
             </p>
           </div>
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row">
           {profiles.length === 0 ? (
             <Link
               to="/profile"
